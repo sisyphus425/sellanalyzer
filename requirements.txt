@@ -1,0 +1,9 @@
+# Зависимости для запуска программы и тестов
+streamlit
+pandas
+plotly
+requests
+yfinance
+pytest
+numpy
+openpyxl
