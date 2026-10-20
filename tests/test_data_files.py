@@ -75,15 +75,15 @@ def test_inflation_series_has_no_gaps(app, macro):
     assert sorted(app.price_levels(macro["cpi"])) == sorted(macro["cpi"])
 
 
-def test_loader_reports_a_broken_file(app, fake_st, tmp_path, monkeypatch):
+def test_loader_reports_a_broken_file(app, cfg, fake_st, tmp_path, monkeypatch):
     broken = tmp_path / "financials_ru.csv"
     broken.write_text("ticker,year\nSBER,2025\n", encoding="utf-8")
-    monkeypatch.setattr(app, "CSV_PATH", broken)
+    monkeypatch.setattr(cfg, "CSV_PATH", broken)
     before = len(fake_st.messages)
     assert app.load_ru_all().empty
     assert any(name == "error" for name, _ in fake_st.messages[before:])
 
 
-def test_loader_handles_a_missing_file(app, tmp_path, monkeypatch):
-    monkeypatch.setattr(app, "CSV_PATH", tmp_path / "nothing.csv")
+def test_loader_handles_a_missing_file(app, cfg, tmp_path, monkeypatch):
+    monkeypatch.setattr(cfg, "CSV_PATH", tmp_path / "nothing.csv")
     assert app.load_ru_all().empty and app.load_revenue_csv().empty
