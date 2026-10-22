@@ -95,6 +95,7 @@ APP_MODULES = [
     "config", "data_sources.csv_store", "data_sources.moex", "data_sources.yahoo",
     "core.formatting", "core.growth", "core.profitability", "core.adjustments", "core.prices", "core.market",
     "core.comparison", "core.validation", "core.exports", "services",
+    "data_sources.errors", "data_sources.retry", "ui.compat",
 ]
 
 

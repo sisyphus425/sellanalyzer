@@ -18,7 +18,7 @@ from salesanalyzer.ui.single_view import single_view
 
 st.set_page_config(page_title="Анализ Продаж Компаний", layout="wide")
 
-st.title("📊 Анализатор продаж компаний (Мосбиржа и мировые рынки)")
+st.title("📊 Анализатор продаж компаний (РФ и Мир)")
 mode = st.radio("Режим:", ["Одна компания", "Сравнение компаний", "Контроль данных"], horizontal=True)
 
 if mode != "Контроль данных" and config.CSV_PATH.exists():  # быстрая проверка файла данных на каждом экране

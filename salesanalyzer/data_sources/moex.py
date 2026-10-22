@@ -6,14 +6,58 @@ import pandas as pd
 import requests
 import streamlit as st
 
-from salesanalyzer.config import CACHE_TTL, ISS
+from salesanalyzer import config
+from salesanalyzer.config import CACHE_TTL, PRICE_HISTORY_YEARS
+from salesanalyzer.data_sources.errors import DataSourceError
+from salesanalyzer.data_sources.retry import call_with_retries
+
+
+class _TransientHTTP(Exception):
+    """Временная ошибка сервера (например, 503): запрос стоит повторить."""
+
+    def __init__(self, status: int):
+        super().__init__(f"HTTP {status}")
+        self.status = status
+
+
+def _is_transient(error) -> bool:
+    return isinstance(error, (requests.ConnectionError, requests.Timeout, _TransientHTTP))
+
+
+def _describe(error) -> str:
+    """Понятное пользователю описание ошибки обращения к Мосбирже."""
+    if isinstance(error, requests.Timeout):
+        return f"Мосбиржа не ответила за {config.REQUEST_TIMEOUT} с. Повторите попытку позже."
+    if isinstance(error, requests.ConnectionError):
+        return "Нет соединения с Мосбиржей. Проверьте интернет-подключение."
+    if isinstance(error, _TransientHTTP):
+        return f"Мосбиржа временно недоступна (HTTP {error.status}). Повторите попытку позже."
+    status = getattr(getattr(error, "response", None), "status_code", None)
+    if status is not None:
+        return f"Мосбиржа отклонила запрос (HTTP {status})."
+    if isinstance(error, (ValueError, TypeError, KeyError, AttributeError)):
+        return "Мосбиржа вернула неожиданный ответ: не удалось разобрать данные."
+    return f"Ошибка при обращении к Мосбирже: {error}"
 
 
 def iss_get(path: str, **params) -> dict:
-    r = requests.get(f"{ISS}/{path}.json", params={"iss.meta": "off", **params}, timeout=15)
-    r.raise_for_status()
-    return {k: pd.DataFrame(v["data"], columns=v["columns"])
-            for k, v in r.json().items() if isinstance(v, dict) and "columns" in v}
+    """Запрос к ISS с повторными попытками. Возвращает словарь блоков-таблиц.
+    При постоянном сбое бросает DataSourceError с понятным текстом."""
+    url = f"{config.ISS}/{path}.json"
+
+    def once():
+        r = requests.get(url, params={"iss.meta": "off", **params}, timeout=config.REQUEST_TIMEOUT)
+        if r.status_code in config.RETRY_STATUSES:
+            raise _TransientHTTP(r.status_code)
+        r.raise_for_status()
+        return r.json()
+
+    try:
+        payload = call_with_retries(once, is_transient=_is_transient)
+        return {k: pd.DataFrame(v["data"], columns=v["columns"])
+                for k, v in payload.items() if isinstance(v, dict) and "columns" in v}
+    except Exception as error:
+        raise DataSourceError(_describe(error), "MOEX") from error
 
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
@@ -26,17 +70,17 @@ def get_moex_name(ticker: str):
 
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
-def get_moex_candles(ticker: str, years: int = 3) -> pd.DataFrame:
+def get_moex_candles(ticker: str, years: int = PRICE_HISTORY_YEARS) -> pd.DataFrame:
     start = (date.today() - timedelta(days=365 * years)).isoformat()
     frames, cursor = [], 0
-    while True:  # ISS отдает максимум 500 свечей за запрос
+    while True:  # ISS отдает ограниченное число свечей за запрос, поэтому грузим страницами
         df = iss_get(f"engines/stock/markets/shares/securities/{ticker}/candles",
                      interval=24, **{"from": start, "start": cursor}).get("candles")
         if df is None or df.empty:
             break
         frames.append(df)
         cursor += len(df)
-        if len(df) < 500:
+        if len(df) < config.ISS_PAGE_SIZE:
             break
     if not frames:
         return pd.DataFrame()

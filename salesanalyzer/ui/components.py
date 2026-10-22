@@ -14,6 +14,8 @@ from salesanalyzer.core.market import market_tables
 from salesanalyzer.core.prices import add_price_indicators, price_metrics, trend_label
 from salesanalyzer.core.profitability import add_margins, latest_value
 from salesanalyzer.data_sources.csv_store import load_macro
+from salesanalyzer.ui.compat import rerun, show_chart, show_table
+from salesanalyzer.config import PRICE_PERIOD_OPTIONS
 
 
 def render_revenue(df: pd.DataFrame, unit: str, color: str, color_est: str, title: str):
@@ -44,7 +46,7 @@ def render_revenue(df: pd.DataFrame, unit: str, color: str, color_est: str, titl
     fig = px.bar(plot, x="Год", y="Значение", color="Тип", text_auto=".4s", title=title,
                  color_discrete_map={"Опубликовано": color, "Расчетная оценка": color_est})
     fig.update_layout(xaxis_type="category", yaxis_title=unit)
-    st.plotly_chart(fig, use_container_width=True)  # в новых версиях Streamlit: width="stretch"
+    show_chart(fig)
 
     # ---- Динамика роста ----
     st.markdown("#### Динамика роста")
@@ -59,7 +61,7 @@ def render_revenue(df: pd.DataFrame, unit: str, color: str, color_est: str, titl
             gfig = px.bar(gdf, x="Год", y="growth", color="Сигнал", text_auto=".1f",
                           color_discrete_map=SIGNAL_COLORS, title="Рост выручки к предыдущему году, %")
             gfig.update_layout(xaxis_type="category", yaxis_title="%")
-            st.plotly_chart(gfig, use_container_width=True)
+            show_chart(gfig)
         with c2:
             table = pd.DataFrame({
                 "Год": gdf["Год"],
@@ -67,7 +69,7 @@ def render_revenue(df: pd.DataFrame, unit: str, color: str, color_est: str, titl
                 "Рост г/г": gdf["growth"].map(lambda v: f"{v:+.1f}%"),
                 "": gdf["growth"].map(signal_icon),
             }).set_index("Год")
-            st.dataframe(table, use_container_width=True)
+            show_table(table)
 
         grew = int((gdf["growth"] > 0).sum())
         st.caption(f"Лет с ростом: {grew} из {len(gdf)}. "
@@ -87,7 +89,7 @@ def render_revenue(df: pd.DataFrame, unit: str, color: str, color_est: str, titl
         cols = {"year": "Год", "revenue": f"Выручка ({unit})", "metric": "Показатель",
                 "source": "Источник", "note": "Комментарий"}
         table = df[[c for c in cols if c in df.columns]].rename(columns=cols)
-        st.dataframe(table.set_index("Год"), use_container_width=True)
+        show_table(table.set_index("Год"))
 
 
 def render_profitability(w: pd.DataFrame, unit: str, color: str, source_rows=None, mixed: bool = False):
@@ -121,7 +123,7 @@ def render_profitability(w: pd.DataFrame, unit: str, color: str, source_rows=Non
                      title=f"Чистая прибыль и EBITDA, {unit}",
                      color_discrete_map={"Чистая прибыль": color, "EBITDA": "#8A8F98"})
         fig.update_layout(xaxis_type="category", yaxis_title=unit, legend_title="")
-        st.plotly_chart(fig, use_container_width=True)
+        show_chart(fig)
 
     # Маржа и ROE в процентах
     margin_cols = [c for c in ("net_margin", "ebitda_margin") if w[c].notna().any()]
@@ -135,14 +137,14 @@ def render_profitability(w: pd.DataFrame, unit: str, color: str, source_rows=Non
             fig = px.line(mm, x="year", y="Значение", color="Показатель", markers=True, title="Маржа, % от выручки")
             fig.add_hline(y=0, line_dash="dot", line_color="gray")
             fig.update_layout(xaxis=dict(dtick=1), xaxis_title="Год", yaxis_title="%", legend_title="")
-            st.plotly_chart(fig, use_container_width=True)
+            show_chart(fig)
     if has_roe:
         with right:
             rd = w.dropna(subset=["roe"]).assign(Год=lambda d: d["year"].astype(str))
             fig = px.bar(rd, x="Год", y="roe", text_auto=".1f", title="ROE (рентабельность капитала), %",
                          color_discrete_sequence=[color])
             fig.update_layout(xaxis_type="category", yaxis_title="%")
-            st.plotly_chart(fig, use_container_width=True)
+            show_chart(fig)
 
     # Рост чистой прибыли
     ni_df = w.dropna(subset=["net_income"])[["year", "net_income"]]
@@ -156,7 +158,7 @@ def render_profitability(w: pd.DataFrame, unit: str, color: str, source_rows=Non
             "Рост г/г": g["growth"].map(lambda v: "н/д" if pd.isna(v) else f"{v:+.1f}%"),
             "": g["growth"].map(signal_icon),
         }).set_index("Год")
-        st.dataframe(table, use_container_width=True)
+        show_table(table)
         cagr_text = ("CAGR чистой прибыли за {a}–{b}: {c:.1f}% {i}. ".format(
             a=int(ni_df["year"].iloc[0]), b=int(ni_df["year"].iloc[-1]), c=cagr, i=signal_icon(cagr))
             if cagr is not None else "CAGR чистой прибыли не рассчитан (убыток в первом или последнем году ряда). ")
@@ -175,8 +177,15 @@ def render_profitability(w: pd.DataFrame, unit: str, color: str, source_rows=Non
             t["Оценка"] = t["is_estimate"].map({True: "да", False: ""})
             t = t.rename(columns={"year": "Год", "value": "Значение", "unit": "Единицы",
                                   "metric": "Определение", "source": "Источник", "note": "Комментарий"})
-            st.dataframe(t[["Показатель", "Год", "Значение", "Единицы", "Определение", "Оценка", "Источник", "Комментарий"]]
-                         .set_index("Показатель"), use_container_width=True)
+            show_table(t[["Показатель", "Год", "Значение", "Единицы", "Определение", "Оценка", "Источник", "Комментарий"]]
+                         .set_index("Показатель"))
+
+
+def show_data_error(error, key: str):
+    """Сообщение об ошибке источника данных и кнопка «Повторить»."""
+    st.error(str(error))
+    if st.button("🔄 Повторить", key=f"retry_{key}"):
+        rerun()
 
 
 def render_export(tables: dict, file_stem: str):
@@ -244,7 +253,7 @@ def render_market_stats(stats, payout: pd.DataFrame, notes: list, color: str) ->
             fig = px.bar(payout.assign(Год=payout["Год"].astype(str)), x="Год", y="Дивиденд на акцию", text_auto=".2f",
                          title=f"Дивиденд на акцию по годам, {cur}", color_discrete_sequence=[color])
             fig.update_layout(xaxis_type="category", yaxis_title=cur)
-            st.plotly_chart(fig, use_container_width=True)
+            show_chart(fig)
         with right:
             pp = payout.dropna(subset=["Payout, %"])
             if pp.empty:
@@ -253,8 +262,8 @@ def render_market_stats(stats, payout: pd.DataFrame, notes: list, color: str) ->
                 fig = px.bar(pp.assign(Год=pp["Год"].astype(str)), x="Год", y="Payout, %", text_auto=".0f",
                              title="Payout: доля чистой прибыли на дивиденды, %", color_discrete_sequence=[color])
                 fig.update_layout(xaxis_type="category", yaxis_title="%")
-                st.plotly_chart(fig, use_container_width=True)
-        st.dataframe(payout.set_index("Год"), use_container_width=True)
+                show_chart(fig)
+        show_table(payout.set_index("Год"))
     else:
         st.info("Данных о дивидендах нет.")
 
@@ -271,7 +280,7 @@ def render_price(prices: pd.DataFrame, ticker: str, currency: str, color: str):
         st.info("История цен недоступна для этого тикера.")
         return
 
-    years = st.selectbox("Период:", [1, 2, 3], index=2, format_func=lambda y: f"{y} г.", key=f"price_years_{ticker}")
+    years = st.selectbox("Период:", list(PRICE_PERIOD_OPTIONS), index=len(PRICE_PERIOD_OPTIONS) - 1, format_func=lambda y: f"{y} г.", key=f"price_years_{ticker}")
     full = add_price_indicators(prices)  # средние считаем по всей истории, чтобы линии были на старте периода
     p = full[full["begin"] >= full["begin"].max() - pd.DateOffset(years=years)].reset_index(drop=True)
     m = price_metrics(p)
@@ -302,12 +311,12 @@ def render_price(prices: pd.DataFrame, ticker: str, currency: str, color: str):
     fig = px.line(long, x="begin", y="Цена", color="Серия", title=f"Цена закрытия {ticker} ({currency})",
                   color_discrete_map={"Цена закрытия": color, "MA50": "#F2B01E", "MA200": "#8A8F98"})
     fig.update_layout(xaxis_title="Дата", yaxis_title=f"Цена, {currency}", legend_title="")
-    st.plotly_chart(fig, use_container_width=True)
+    show_chart(fig)
 
     p["drawdown"] = (p["close"] / p["close"].cummax() - 1) * 100
     dfig = px.area(p, x="begin", y="drawdown", title="Просадка от максимума, %", color_discrete_sequence=["#D64545"])
     dfig.update_layout(xaxis_title="Дата", yaxis_title="%")
-    st.plotly_chart(dfig, use_container_width=True)
+    show_chart(dfig)
 
     st.caption("MA — среднее цен закрытия за 50 и 200 торговых дней. Просадка — падение от предыдущего максимума. "
                "Прошлые показатели не гарантируют будущих результатов; это справочная аналитика, а не рекомендация.")
@@ -358,7 +367,7 @@ def render_adjustment_info(macro: dict, to_rub: bool, real: bool, base_year, not
                         "Инфляция дек/дек, %": macro["cpi"].get(y),
                         f"Коэф. к ценам {base_year} г.": round(levels[base_year] / levels[y], 4)
                         if real and y in levels and base_year in levels else None})
-        st.dataframe(pd.DataFrame(tbl).set_index("Год"), use_container_width=True)
+        show_table(pd.DataFrame(tbl).set_index("Год"))
         st.caption("Курс — простое среднее официальных курсов ЦБ за год. Уровень цен в середине года — среднее геометрическое "
                    "уровней на конец предыдущего и текущего года (приближение для годовых потоков). "
                    "Данные лежат в macro_ru.csv, их можно обновлять без изменения кода.")

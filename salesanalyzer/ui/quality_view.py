@@ -11,6 +11,7 @@ from salesanalyzer.core.adjustments import price_levels
 from salesanalyzer.core.validation import coverage_matrix, validate_financials
 from salesanalyzer.data_sources.csv_store import load_macro, read_raw_csv
 from salesanalyzer.ui.components import render_export
+from salesanalyzer.ui.compat import show_table
 
 
 def quality_view():
@@ -59,22 +60,22 @@ def quality_view():
         else:
             chosen = st.multiselect("Показывать:", list(SEV_ORDER), default=list(SEV_ORDER))
             view = issues[issues["Серьезность"].isin(chosen)]
-            st.dataframe(view, use_container_width=True, hide_index=True)
+            show_table(view, hide_index=True)
             st.caption("Номер строки считается по файлу: строка 1 — заголовок. Информационные заметки не означают ошибку: "
                        "например, резкий рост прибыли может быть реальным, но его стоит сверить с источником.")
     with tab_cov:
         if coverage.empty:
             st.info("Нет корректных данных для матрицы покрытия.")
         else:
-            st.dataframe(coverage, use_container_width=True, hide_index=True)
+            show_table(coverage, hide_index=True)
             st.caption("✓ — значение есть, ≈ — расчетная оценка, пусто — данных нет.")
     with tab_est:
         if est_tbl.empty:
             st.info("Расчетных оценок в файле нет.")
         else:
-            st.dataframe(est_tbl, use_container_width=True, hide_index=True)
+            show_table(est_tbl, hide_index=True)
     with tab_raw:
-        st.dataframe(raw, use_container_width=True, hide_index=True)
+        show_table(raw, hide_index=True)
 
     with st.expander(f"🌐 Макроданные ({config.MACRO_PATH.name})"):
         macro = load_macro()

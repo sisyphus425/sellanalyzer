@@ -13,6 +13,15 @@ REQUIRED_COLS = ["ticker", "year", "indicator", "value", "unit", "metric", "is_e
 MACRO_PATH = PROJECT_ROOT / "macro_ru.csv"
 MACRO_COLS = ["year", "indicator", "value", "unit", "source", "note"]
 
+# --- Сеть: таймауты и повторные попытки ---
+REQUEST_TIMEOUT = 10  # секунд на один запрос
+RETRY_ATTEMPTS = 3  # всего попыток (первая + повторы)
+RETRY_DELAY = 0.5  # пауза перед второй попыткой, секунд (дальше удваивается)
+RETRY_STATUSES = (429, 500, 502, 503, 504)  # коды HTTP, при которых запрос повторяется
+ISS_PAGE_SIZE = 500  # максимум свечей за один запрос ISS
+PRICE_HISTORY_YEARS = 3  # глубина загружаемой истории цен, лет
+PRICE_PERIOD_OPTIONS = (1, 2, 3)  # периоды на вкладках цены, лет
+
 # --- Цвета и «светофор» роста ---
 GREEN, GREEN_LIGHT, BLUE = "#00A86B", "#9AD8BF", "#1f77b4"
 GROWTH_UP, GROWTH_DOWN = 5.0, -5.0  # пороги "светофора", % (меняйте под себя)

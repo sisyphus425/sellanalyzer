@@ -1,13 +1,13 @@
 """Сбор данных для сравнения компаний: объединяет CSV, Мосбиржу и Yahoo Finance."""
 
 import pandas as pd
-import requests
 
 from salesanalyzer import config
 from salesanalyzer.core.growth import add_growth
 from salesanalyzer.core.profitability import add_margins, make_wide
 from salesanalyzer.data_sources.moex import get_moex_candles
 from salesanalyzer.data_sources.yahoo import get_us_data, get_us_prices
+from salesanalyzer.data_sources.errors import DataSourceError
 
 
 def collect_revenue(ru_tickers, us_tickers, revenue_all, problems) -> pd.DataFrame:
@@ -61,8 +61,8 @@ def collect_prices(ru_tickers, us_tickers, years, problems) -> pd.DataFrame:
     for t in ru_tickers:
         try:
             df = get_moex_candles(t, years)
-        except requests.RequestException as e:
-            problems.append(f"{t}: ошибка MOEX ({e})")
+        except DataSourceError as e:
+            problems.append(f"{t}: {e}")
             continue
         if df.empty:
             problems.append(f"{t}: нет истории цен")

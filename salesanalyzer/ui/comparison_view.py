@@ -2,7 +2,6 @@
 
 import pandas as pd
 import plotly.express as px
-import requests
 import streamlit as st
 
 from salesanalyzer import config
@@ -18,6 +17,9 @@ from salesanalyzer.data_sources.moex import get_moex_candles
 from salesanalyzer.data_sources.yahoo import get_us_data, get_us_prices
 from salesanalyzer.services import collect_prices, collect_profit, collect_revenue
 from salesanalyzer.ui.components import adjustment_controls, render_adjustment_info, render_export
+from salesanalyzer.ui.compat import show_chart, show_table
+from salesanalyzer.data_sources.errors import DataSourceError
+from salesanalyzer.config import PRICE_PERIOD_OPTIONS
 
 
 def comparison_view():
@@ -87,10 +89,10 @@ def comparison_view():
                           title="Динамика выручки (базовый год = 100)")
             fig.add_hline(y=100, line_dash="dot", line_color="gray")
             fig.update_layout(xaxis=dict(dtick=1), xaxis_title="Год", yaxis_title="Индекс", legend_title="")
-            st.plotly_chart(fig, use_container_width=True)
+            show_chart(fig)
 
     with tab_growth:
-        st.dataframe(summary_table(rev, common), use_container_width=True)
+        show_table(summary_table(rev, common))
         st.caption(f"Светофор: 🟢 от +{GROWTH_UP:.0f}%, 🟡 от {GROWTH_DOWN:.0f}% до +{GROWTH_UP:.0f}%, "
                    f"🔴 ниже {GROWTH_DOWN:.0f}%. Рост номинальный, в валюте отчетности каждой компании. "
                    "CAGR по общему периоду сопоставим между компаниями, CAGR по всему ряду — нет, "
@@ -102,7 +104,7 @@ def comparison_view():
             fig = px.bar(gdf.assign(Год=gdf["year"].astype(str)), x="Год", y="growth", color="label",
                          barmode="group", text_auto=".1f", title="Рост выручки к предыдущему году, %")
             fig.update_layout(xaxis_type="category", yaxis_title="%", legend_title="")
-            st.plotly_chart(fig, use_container_width=True)
+            show_chart(fig)
 
     with tab_abs:
         st.caption("Абсолютные значения сравнимы только внутри одной единицы измерения, "
@@ -111,7 +113,7 @@ def comparison_view():
             fig = px.bar(g.assign(Год=g["year"].astype(str)), x="Год", y="revenue", color="label",
                          barmode="group", text_auto=".4s", title=f"Выручка, {unit}")
             fig.update_layout(xaxis_type="category", yaxis_title=unit, legend_title="")
-            st.plotly_chart(fig, use_container_width=True)
+            show_chart(fig)
         if rev["is_estimate"].any():
             est = rev[rev["is_estimate"]].groupby("label")["year"].apply(lambda s: ", ".join(map(str, s)))
             st.caption("⚠️ Расчетные оценки: " + "; ".join(f"{k} ({v})" for k, v in est.items()))
@@ -127,7 +129,7 @@ def comparison_view():
                     lv = latest_value(g, col)
                     rec[name] = "н/д" if lv is None else f"{lv[1]:.1f}% ({lv[0]})"
                 summary.append(rec)
-            st.dataframe(pd.DataFrame(summary).set_index("Компания"), use_container_width=True)
+            show_table(pd.DataFrame(summary).set_index("Компания"))
 
             metric = st.radio("Показатель на графике:", ["Чистая маржа", "EBITDA-маржа", "ROE"], horizontal=True)
             col = {"Чистая маржа": "net_margin", "EBITDA-маржа": "ebitda_margin", "ROE": "roe"}[metric]
@@ -139,7 +141,7 @@ def comparison_view():
                              barmode="group", text_auto=".1f", title=f"{metric}, %")
                 fig.add_hline(y=0, line_dash="dot", line_color="gray")
                 fig.update_layout(xaxis_type="category", yaxis_title="%", legend_title="")
-                st.plotly_chart(fig, use_container_width=True)
+                show_chart(fig)
             st.caption("В скобках — последний год с данными. Маржа = показатель / выручка; для банков (Сбербанк, "
                        "Т-Технологии) «выручка» — операционный доход, EBITDA не применяется, вместо нее ROE. "
                        "Для Яндекса прибыль и EBITDA скорректированные; для Лукойла прибыль от продолжающейся деятельности. "
@@ -155,9 +157,9 @@ def comparison_view():
             for t in ru_sel:
                 try:
                     price_c, pdate_c = last_close(get_moex_candles(t))
-                except requests.RequestException as e:
+                except DataSourceError as e:
                     price_c, pdate_c = None, None
-                    notes_all.append(f"{t}: ошибка MOEX ({e})")
+                    notes_all.append(f"{t}: {e}")
                 stats_c, payout_c, n_c = market_stats_ru(ru_all[ru_all["ticker"] == t], macro_m, price_c, pdate_c)
                 notes_all += [f"{t}: {x}" for x in n_c]
                 if stats_c is not None:
@@ -178,7 +180,7 @@ def comparison_view():
             st.info("Нет данных для расчета мультипликаторов.")
         else:
             mdf = pd.DataFrame(rows_m).set_index("Компания")
-            st.dataframe(mdf, use_container_width=True)
+            show_table(mdf)
             metric_m = st.radio("Показатель на графике:", ["P/S", "P/E", "Дивдоходность, %", "Payout, %"], horizontal=True,
                                 key="mkt_metric")
             cm = mdf[metric_m].dropna()
@@ -187,14 +189,14 @@ def comparison_view():
             else:
                 fig = px.bar(cm.reset_index(), x="Компания", y=metric_m, text_auto=".2f", title=metric_m)
                 fig.update_layout(yaxis_title=metric_m)
-                st.plotly_chart(fig, use_container_width=True)
+                show_chart(fig)
             st.download_button("⬇️ Скачать таблицу (CSV)", key="dl_cmp_mkt", mime="text/csv",
                                data=to_csv_bytes(mdf.reset_index()), file_name="comparison_multiples.csv")
         for n in dict.fromkeys(notes_all):
             st.caption("⚠️ " + n)
 
     with tab_price:
-        years = st.selectbox("Период:", [1, 2, 3], index=0, format_func=lambda y: f"{y} г.")
+        years = st.selectbox("Период:", list(PRICE_PERIOD_OPTIONS), index=0, format_func=lambda y: f"{y} г.")
         with st.spinner("Загружаем цены..."):
             prices = collect_prices(ru_sel, us_sel, years, problems)
         if prices.empty:
@@ -205,11 +207,11 @@ def comparison_view():
                           title=f"Цена закрытия (старт с {start_date} = 100)")
             fig.add_hline(y=100, line_dash="dot", line_color="gray")
             fig.update_layout(xaxis_title="Дата", yaxis_title="Индекс", legend_title="")
-            st.plotly_chart(fig, use_container_width=True)
+            show_chart(fig)
             st.markdown("#### Метрики доходности и риска")
             pm = price_metrics_table(prices)
             if not pm.empty:
-                st.dataframe(pm.set_index("Компания"), use_container_width=True)
+                show_table(pm.set_index("Компания"))
                 st.caption("Считаются по ценам за выбранный период (с общей даты старта). Волатильность — "
                            "годовая; просадка — от максимума внутри периода. MA200 на коротком периоде может быть недоступна (н/д).")
                 st.download_button("⬇️ Скачать метрики (CSV)", key="dl_cmp_pm", mime="text/csv",

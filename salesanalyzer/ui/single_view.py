@@ -1,6 +1,5 @@
 """Экран «Одна компания»."""
 
-import requests
 import streamlit as st
 
 from salesanalyzer import config
@@ -13,7 +12,8 @@ from salesanalyzer.core.profitability import make_wide
 from salesanalyzer.data_sources.csv_store import load_macro, load_revenue_csv, load_ru_all
 from salesanalyzer.data_sources.moex import get_moex_candles, get_moex_name
 from salesanalyzer.data_sources.yahoo import get_us_data, get_us_prices
-from salesanalyzer.ui.components import adjustment_controls, render_adjustment_info, render_export, render_market_stats, render_price, render_profitability, render_revenue
+from salesanalyzer.ui.components import adjustment_controls, render_adjustment_info, render_export, render_market_stats, render_price, render_profitability, render_revenue, show_data_error
+from salesanalyzer.data_sources.errors import DataSourceError
 
 
 def single_view():
@@ -40,8 +40,8 @@ def single_view():
         name = None
         try:
             name = get_moex_name(ticker)
-        except requests.RequestException:
-            st.warning("Не удалось связаться с MOEX: название и цены могут быть недоступны.")
+        except DataSourceError as e:
+            st.warning(f"{e} Название компании и цены недоступны; финансовые данные из файла показаны.")
 
         if name is None and rows.empty:
             st.error(f"❌ Тикер **{ticker}** не найден на Мосбирже и отсутствует в {config.CSV_PATH.name}.")
@@ -90,17 +90,17 @@ def single_view():
             else:
                 try:
                     price_m, pdate_m = last_close(get_moex_candles(ticker))
-                except requests.RequestException as e:
+                except DataSourceError as e:
                     price_m, pdate_m = None, None
-                    st.error(f"Не удалось загрузить цену: {e}")
+                    show_data_error(e, f"mkt_{ticker}")
                 stats_m, payout_m, notes_m = market_stats_ru(ru_orig, load_macro(), price_m, pdate_m)
                 market_tables_ = render_market_stats(stats_m, payout_m, notes_m, GREEN)
 
         with tab_price:
             try:
                 render_price(get_moex_candles(ticker), ticker, "₽", GREEN)
-            except requests.RequestException as e:
-                st.error(f"Не удалось загрузить историю цен: {e}")
+            except DataSourceError as e:
+                show_data_error(e, f"price_{ticker}")
 
         ru_export_rows = ru_long
         if not ru_export_rows.empty:
@@ -112,7 +112,7 @@ def single_view():
             with st.spinner(f"Загружаем данные для {ticker}..."):
                 data = get_us_data(ticker)
         except Exception as e:
-            st.error(f"Не удалось загрузить данные: {e}")
+            show_data_error(e, f"us_{ticker}")
             st.stop()
 
         if data is None:
@@ -141,7 +141,7 @@ def single_view():
                 price_m, pdate_m = last_close(get_us_prices(ticker))
             except Exception as e:
                 price_m, pdate_m = None, None
-                st.error(f"Не удалось загрузить цену: {e}")
+                show_data_error(e, f"mkt_{ticker}")
             stats_m, payout_m, notes_m = market_stats_us(data, price_m, pdate_m)
             market_tables_ = render_market_stats(stats_m, payout_m, notes_m, BLUE)
 
@@ -149,7 +149,7 @@ def single_view():
             try:
                 render_price(get_us_prices(ticker), ticker, data["currency"], BLUE)
             except Exception as e:
-                st.error(f"Не удалось загрузить историю цен: {e}")
+                show_data_error(e, f"price_{ticker}")
 
         if not data["wide"].empty:
             st.divider()
