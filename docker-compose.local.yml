@@ -1,0 +1,7 @@
+# Проверка контейнера на своем компьютере без прокси и пароля (только для localhost):
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up --build app
+# Затем откройте http://localhost:8501
+services:
+  app:
+    ports:
+      - "127.0.0.1:8501:8501"

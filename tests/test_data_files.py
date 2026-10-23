@@ -87,3 +87,28 @@ def test_loader_reports_a_broken_file(app, cfg, fake_st, tmp_path, monkeypatch):
 def test_loader_handles_a_missing_file(app, cfg, tmp_path, monkeypatch):
     monkeypatch.setattr(cfg, "CSV_PATH", tmp_path / "nothing.csv")
     assert app.load_ru_all().empty and app.load_revenue_csv().empty
+
+
+def test_data_dir_defaults_to_project_root_and_can_be_set_by_environment(cfg, tmp_path, monkeypatch):
+    """На сервере (Docker) файлы данных лежат в отдельной папке, путь к ней задается переменной SALESANALYZER_DATA_DIR."""
+    import importlib
+    try:
+        monkeypatch.setenv("SALESANALYZER_DATA_DIR", str(tmp_path))
+        importlib.reload(cfg)
+        assert cfg.DATA_DIR == tmp_path
+        assert cfg.CSV_PATH == tmp_path / "financials_ru.csv" and cfg.MACRO_PATH == tmp_path / "macro_ru.csv"
+    finally:
+        monkeypatch.delenv("SALESANALYZER_DATA_DIR", raising=False)
+        importlib.reload(cfg)
+    assert cfg.DATA_DIR == cfg.PROJECT_ROOT and cfg.CSV_PATH.parent == cfg.PROJECT_ROOT
+
+
+def test_empty_environment_variable_means_default_folder(cfg, monkeypatch):
+    import importlib
+    try:
+        monkeypatch.setenv("SALESANALYZER_DATA_DIR", "")
+        importlib.reload(cfg)
+        assert cfg.DATA_DIR == cfg.PROJECT_ROOT
+    finally:
+        monkeypatch.delenv("SALESANALYZER_DATA_DIR", raising=False)
+        importlib.reload(cfg)

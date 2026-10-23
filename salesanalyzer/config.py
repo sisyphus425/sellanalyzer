@@ -1,5 +1,6 @@
 """Настройки приложения: пути к файлам данных, пороги «светофора», цвета, справочники показателей и единиц."""
 
+import os
 from pathlib import Path
 
 
@@ -8,9 +9,11 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent  # папка, где ле
 # --- Пути и общие настройки ---
 ISS = "https://iss.moex.com/iss"
 CACHE_TTL = 60 * 60
-CSV_PATH = PROJECT_ROOT / "financials_ru.csv"
+# Папка с файлами данных. По умолчанию рядом с streamlit_app.py; на сервере (Docker) задается переменной окружения
+DATA_DIR = Path(os.environ.get("SALESANALYZER_DATA_DIR") or PROJECT_ROOT)
+CSV_PATH = DATA_DIR / "financials_ru.csv"
 REQUIRED_COLS = ["ticker", "year", "indicator", "value", "unit", "metric", "is_estimate", "source", "note"]
-MACRO_PATH = PROJECT_ROOT / "macro_ru.csv"
+MACRO_PATH = DATA_DIR / "macro_ru.csv"
 MACRO_COLS = ["year", "indicator", "value", "unit", "source", "note"]
 
 # --- Сеть: таймауты и повторные попытки ---

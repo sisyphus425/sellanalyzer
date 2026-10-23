@@ -33,7 +33,7 @@ def single_view():
         revenue_all = load_revenue_csv()
         ru_all = load_ru_all()
         if revenue_all.empty:
-            st.error(f"Файл {config.CSV_PATH.name} не найден или пуст. Он должен лежать рядом с приложением: {config.CSV_PATH.parent}")
+            st.error(f"Файл {config.CSV_PATH.name} не найден или пуст. Он должен лежать в папке данных: {config.CSV_PATH.parent}")
             st.stop()
 
         rows = revenue_all[revenue_all["ticker"] == ticker]

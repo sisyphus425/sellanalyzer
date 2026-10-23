@@ -19,7 +19,7 @@ def quality_view():
              "расчетные оценки и подозрительные значения. Файл перечитывается при каждом обновлении страницы, "
              "поэтому после правки CSV достаточно обновить страницу.")
     if not config.CSV_PATH.exists():
-        st.error(f"Файл {config.CSV_PATH.name} не найден. Он должен лежать рядом с приложением: {config.CSV_PATH.parent}")
+        st.error(f"Файл {config.CSV_PATH.name} не найден. Он должен лежать в папке данных: {config.CSV_PATH.parent}")
         return
     try:
         raw = read_raw_csv()

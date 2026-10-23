@@ -1,0 +1,8 @@
+# Зависимости образа Docker. Нижние границы версий; после первой удачной сборки зафиксируйте точные версии:
+#   docker compose run --rm app pip freeze > requirements.lock   (и подставьте их сюда при желании)
+streamlit>=1.40
+pandas>=2.0
+plotly>=5.0
+requests>=2.31
+yfinance>=0.2.50
+openpyxl>=3.1

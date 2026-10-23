@@ -1,0 +1,37 @@
+# Приложение + прокси Caddy (автоматический HTTPS и пароль).
+# Подробная инструкция: DEPLOY.md
+services:
+  app:
+    build: .
+    image: sellanalyzer:latest
+    container_name: sellanalyzer
+    restart: unless-stopped
+    volumes:
+      # Файлы данных лежат на сервере в ./data и подключаются только для чтения.
+      # После правки CSV достаточно обновить страницу в браузере, пересборка не нужна.
+      - ./data:/data:ro
+    # Порт 8501 наружу НЕ публикуется: к приложению можно попасть только через caddy.
+    expose:
+      - "8501"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  caddy:
+    image: caddy:2
+    container_name: sellanalyzer-caddy
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy:/etc/caddy:ro        # здесь лежит файл Caddyfile (домен, логин и пароль)
+      - caddy_data:/data             # сертификаты HTTPS
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
