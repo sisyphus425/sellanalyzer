@@ -16,6 +16,7 @@ from salesanalyzer.data_sources.csv_store import load_macro, load_revenue_csv, l
 from salesanalyzer.data_sources.moex import get_moex_candles
 from salesanalyzer.data_sources.yahoo import get_us_data, get_us_prices
 from salesanalyzer.services import collect_prices, collect_profit, collect_revenue
+from salesanalyzer.ui.forecast import render_forecast_comparison
 from salesanalyzer.ui.components import adjustment_controls, render_adjustment_info, render_export
 from salesanalyzer.ui.compat import show_chart, show_table
 from salesanalyzer.data_sources.errors import DataSourceError
@@ -69,8 +70,8 @@ def comparison_view():
 
     prof = collect_profit(ru_sel, us_sel, ru_all_adj)
 
-    tab_idx, tab_growth, tab_abs, tab_prof, tab_mkt, tab_price = st.tabs(
-        ["Выручка (индекс)", "Рост и CAGR", "Выручка в единицах", "Прибыльность", "Мультипликаторы", "Цена акции (индекс)"])
+    tab_idx, tab_growth, tab_abs, tab_prof, tab_fc, tab_mkt, tab_price = st.tabs(
+        ["Выручка (индекс)", "Рост и CAGR", "Выручка в единицах", "Прибыльность", "Прогноз", "Мультипликаторы", "Цена акции (индекс)"])
 
     with tab_idx:
         st.caption("Индекс выручки: значение в базовом году = 100. Так можно сравнивать компании "
@@ -146,6 +147,9 @@ def comparison_view():
                        "Т-Технологии) «выручка» — операционный доход, EBITDA не применяется, вместо нее ROE. "
                        "Для Яндекса прибыль и EBITDA скорректированные; для Лукойла прибыль от продолжающейся деятельности. "
                        "Сравнивать уровни маржи между банками и нефинансовыми компаниями некорректно.")
+
+    with tab_fc:
+        render_forecast_comparison(rev, prof)
 
     with tab_mkt:
         st.caption("Текущие мультипликаторы: последняя цена × число акций / показатели последнего отчетного года. "

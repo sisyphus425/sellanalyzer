@@ -12,6 +12,7 @@ from salesanalyzer.core.profitability import make_wide
 from salesanalyzer.data_sources.csv_store import load_macro, load_revenue_csv, load_ru_all
 from salesanalyzer.data_sources.moex import get_moex_candles, get_moex_name
 from salesanalyzer.data_sources.yahoo import get_us_data, get_us_prices
+from salesanalyzer.ui.forecast import render_forecast
 from salesanalyzer.ui.components import adjustment_controls, render_adjustment_info, render_export, render_market_stats, render_price, render_profitability, render_revenue, show_data_error
 from salesanalyzer.data_sources.errors import DataSourceError
 
@@ -51,14 +52,14 @@ def single_view():
 
         ru_orig = ru_all[ru_all["ticker"] == ticker]
         ru_long = ru_orig
-        market_tables_ = {}
+        market_tables_, forecast_tables_ = {}, {}
         if not ru_long.empty:
             to_rub, real, base_year, macro = adjustment_controls(list(ru_long["unit"].unique()), f"single_{ticker}")
             ru_long, adj_notes = adjust_long(ru_long, to_rub, real, base_year, macro)
             render_adjustment_info(macro, to_rub, real, base_year, adj_notes)
         rows = ru_long[ru_long["indicator"] == "revenue"].rename(columns={"value": "revenue"}).drop(columns=["indicator"])
 
-        tab_rev, tab_prof, tab_mkt, tab_price = st.tabs(["Выручка (МСФО)", "Прибыльность", "Мультипликаторы и дивиденды", "Цена акции"])
+        tab_rev, tab_prof, tab_fc, tab_mkt, tab_price = st.tabs(["Выручка (МСФО)", "Прибыльность", "Прогноз", "Мультипликаторы и дивиденды", "Цена акции"])
 
         with tab_rev:
             if rows.empty:
@@ -83,6 +84,14 @@ def single_view():
                 w, unit_p, mixed = make_wide(ru_rows)
                 render_profitability(w, unit_p, GREEN, ru_rows, mixed)
 
+        with tab_fc:
+            if ru_long.empty:
+                st.warning(f"Для **{ticker}** нет данных в {config.CSV_PATH.name}: прогноз не строится.")
+            else:
+                w_f, unit_f, _ = make_wide(ru_long)
+                est_f = {ind: set(g["year"]) for ind, g in ru_long[ru_long["is_estimate"]].groupby("indicator")}
+                forecast_tables_ = render_forecast(w_f, unit_f, GREEN, f"ru_{ticker}", est_f)
+
         with tab_mkt:
             if ru_orig.empty or not (ru_orig["indicator"] == "shares").any():
                 st.warning(f"Для **{ticker}** в {config.CSV_PATH.name} нет числа акций (indicator = shares). "
@@ -106,7 +115,7 @@ def single_view():
         if not ru_export_rows.empty:
             st.divider()
             w_e, unit_e, _ = make_wide(ru_export_rows)
-            render_export({**export_tables(w_e, unit_e, ru_export_rows, ticker), **market_tables_}, f"{ticker}_financials")
+            render_export({**export_tables(w_e, unit_e, ru_export_rows, ticker), **market_tables_, **forecast_tables_}, f"{ticker}_financials")
     else:
         try:
             with st.spinner(f"Загружаем данные для {ticker}..."):
@@ -121,8 +130,8 @@ def single_view():
         st.subheader(f"🏢 {data['name']}")
         site = data["website"]
         st.write(f"**Сектор:** {data['sector']} | **Сайт:** {f'[{site}]({site})' if site else '—'}")
-        market_tables_ = {}
-        tab_rev, tab_prof, tab_mkt, tab_price = st.tabs(["Выручка", "Прибыльность", "Мультипликаторы и дивиденды", "Цена акции"])
+        market_tables_, forecast_tables_ = {}, {}
+        tab_rev, tab_prof, tab_fc, tab_mkt, tab_price = st.tabs(["Выручка", "Прибыльность", "Прогноз", "Мультипликаторы и дивиденды", "Цена акции"])
 
         with tab_rev:
             if data["df"] is None:
@@ -135,6 +144,12 @@ def single_view():
                 st.warning(f"⚠️ Нет открытых данных о прибыли для {ticker}.")
             else:
                 render_profitability(data["wide"], "$", BLUE)
+
+        with tab_fc:
+            if data["wide"].empty:
+                st.warning(f"⚠️ Нет открытых данных для прогноза по {ticker}.")
+            else:
+                forecast_tables_ = render_forecast(data["wide"], "$", BLUE, f"us_{ticker}")
 
         with tab_mkt:
             try:
@@ -153,4 +168,4 @@ def single_view():
 
         if not data["wide"].empty:
             st.divider()
-            render_export({**export_tables(data["wide"], "$", None, ticker), **market_tables_}, f"{ticker}_financials")
+            render_export({**export_tables(data["wide"], "$", None, ticker), **market_tables_, **forecast_tables_}, f"{ticker}_financials")

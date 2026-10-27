@@ -73,3 +73,19 @@ def test_comparison_export_tables(app, ru_all):
     cagr = tables["Рост и CAGR"].set_index("Компания")
     assert cagr.loc["SBER", "CAGR весь ряд, %"] == pytest.approx(29.04, abs=0.01)
     assert cagr.loc["GAZP", "Общий период"] == "2022–2025"
+
+
+@pytest.mark.parametrize("name", ["Прогноз: методы", "a/b\\c", "Выручка [млрд]", "что?*", "'кавычки'"])
+def test_excel_sheet_names_with_forbidden_characters_are_cleaned(app, name):
+    sheets = pd.read_excel(io.BytesIO(app.to_excel_bytes({name: pd.DataFrame({"a": [1]})})), sheet_name=None)
+    (title,) = list(sheets)
+    assert title and not any(ch in title for ch in "\\/?*[]:") and not title.startswith("'") and len(title) <= 31
+
+
+def test_excel_sheet_names_stay_unique_after_cleaning_and_truncation(app):
+    long = "Очень длинное название листа для проверки ограничения"
+    tables = {long + " А": pd.DataFrame({"a": [1]}), long + " Б": pd.DataFrame({"a": [2]}),
+              "Прогноз: методы": pd.DataFrame({"a": [3]}), "Прогноз/методы": pd.DataFrame({"a": [4]})}
+    sheets = pd.read_excel(io.BytesIO(app.to_excel_bytes(tables)), sheet_name=None)
+    assert len(sheets) == 4 and len({n.lower() for n in sheets}) == 4
+    assert sorted(int(df["a"].iloc[0]) for df in sheets.values()) == [1, 2, 3, 4]

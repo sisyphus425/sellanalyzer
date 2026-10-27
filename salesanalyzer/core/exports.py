@@ -1,5 +1,6 @@
 """Подготовка таблиц и файлов для выгрузки (CSV, Excel)."""
 
+import re
 from datetime import date
 from io import BytesIO
 
@@ -16,6 +17,21 @@ def to_csv_bytes(df: pd.DataFrame, sep: str = ",") -> bytes:
     return df.to_csv(index=False, sep=sep, decimal="," if sep == ";" else ".").encode("utf-8-sig")
 
 
+_BAD_SHEET_CHARS = re.compile(r"[\\/?*\[\]:]")
+
+
+def _sheet_name(name: str, used: set) -> str:
+    """Допустимое имя листа Excel: без символов \\ / ? * [ ] :, не длиннее 31 символа и уникальное в книге."""
+    base = _BAD_SHEET_CHARS.sub(" ", str(name)).strip().strip("'") or "Лист"
+    candidate, n = base[:31], 1
+    while candidate.lower() in used:
+        n += 1
+        suffix = f" {n}"
+        candidate = base[:31 - len(suffix)] + suffix
+    used.add(candidate.lower())
+    return candidate
+
+
 def to_excel_bytes(tables: dict):
     """Книга Excel: один лист на таблицу. None, если нет openpyxl или нет данных."""
     try:
@@ -26,9 +42,10 @@ def to_excel_bytes(tables: dict):
     if not tables:
         return None
     bio = BytesIO()
+    used = set()
     with pd.ExcelWriter(bio, engine="openpyxl") as xw:
         for name, df in tables.items():
-            sheet = name[:31]
+            sheet = _sheet_name(name, used)
             df.to_excel(xw, sheet_name=sheet, index=False)
             ws = xw.sheets[sheet]
             for i, col in enumerate(df.columns, 1):
