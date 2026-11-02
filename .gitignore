@@ -1,9 +1,0 @@
-.venv/
-venv/
-__pycache__/
-*.pyc
-.pytest_cache/
-.env
-caddy/Caddyfile
-data/
-*.zip
