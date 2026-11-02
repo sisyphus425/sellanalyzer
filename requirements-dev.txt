@@ -1,0 +1,5 @@
+# Зависимости для запуска тестов (тестам не нужны streamlit, yfinance, requests и plotly: они подменяются заглушками)
+pytest
+pandas
+numpy
+openpyxl
