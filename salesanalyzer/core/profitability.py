@@ -10,7 +10,7 @@ def make_wide(rows: pd.DataFrame):
     if rows.empty:
         return pd.DataFrame(), "", False
     p = rows.pivot_table(index="year", columns="indicator", values="value", aggfunc="last")
-    for c in ("revenue", "net_income", "ebitda", "roe", "dps", "shares"):
+    for c in ("revenue", "net_income", "ebitda", "roe", "dps", "shares", "payout_target"):
         if c not in p.columns:
             p[c] = float("nan")
     p["has_estimate"] = rows.groupby("year")["is_estimate"].any()

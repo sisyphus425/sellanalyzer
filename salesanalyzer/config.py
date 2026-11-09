@@ -35,6 +35,9 @@ FORECAST_VOLATILITY_WARN = 25.0  # разброс годовых темпов р
 # --- Сценарный калькулятор «что если» ---
 WHATIF_MAX_YEARS = 3  # на сколько лет вперед считается сценарий
 
+# --- Прогноз дивидендов ---
+DIVIDEND_AVG_YEARS = 3  # за сколько последних лет усредняется фактический payout
+
 # --- Диапазон будущей цены (Монте-Карло) ---
 MC_SIMULATIONS = 5000  # число смоделированных траекторий цены
 MC_SEED = 42  # начальное значение генератора случайных чисел: результат воспроизводим
@@ -53,7 +56,7 @@ SIGNAL_COLORS = {"Рост": "#00A86B", "Стагнация": "#F2B01E", "Пад
 
 # --- Показатели, единицы и расчетные константы ---
 INDICATOR_NAMES = {"revenue": "Выручка", "net_income": "Чистая прибыль", "ebitda": "EBITDA", "roe": "ROE",
-                   "dps": "Дивиденд на акцию", "shares": "Число акций"}
+                   "dps": "Дивиденд на акцию", "shares": "Число акций", "payout_target": "Целевой payout"}
 MONEY_INDICATORS = ("revenue", "net_income", "ebitda")  # денежные показатели одной единицы измерения
 # единицы в долларах -> (рублевая единица, множитель при умножении на курс)
 USD_UNITS = {"млн $": ("млрд ₽", 1 / 1000), "млрд $": ("млрд ₽", 1.0), "$": ("₽", 1.0)}
@@ -65,7 +68,7 @@ MAX_COMPANIES = 6
 # --- Контроль качества данных ---
 SEV_ERR, SEV_WARN, SEV_INFO = "🔴 Ошибка", "🟡 Предупреждение", "🔵 Информация"
 SEV_ORDER = {SEV_ERR: 0, SEV_WARN: 1, SEV_INFO: 2}
-KNOWN_INDICATORS = ("revenue", "net_income", "ebitda", "roe", "dps", "shares")
+KNOWN_INDICATORS = ("revenue", "net_income", "ebitda", "roe", "dps", "shares", "payout_target")
 KNOWN_UNITS = {"млрд ₽", "млн ₽", "млрд $", "млн $", "$", "₽", "%", "₽ на акцию", "млн шт."}
 BOOL_VALUES = {"true", "false", "1", "0", "yes", "no", "да", "нет"}
 JUMP_LIMITS = {"revenue": (100, SEV_WARN), "net_income": (300, SEV_INFO), "ebitda": (150, SEV_INFO)}

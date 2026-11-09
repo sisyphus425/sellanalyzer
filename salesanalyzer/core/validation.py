@@ -131,6 +131,8 @@ def validate_financials(raw: pd.DataFrame, today_year: int):
     # Здравый смысл
     for _, r in ok[(ok["indicator"] == "shares") & (ok["value"] <= 0)].iterrows():
         add(SEV_ERR, "Число акций ≤ 0", f"Значение {r['value']} выглядит ошибочным.", r["ticker"], r["year"], "shares", r["line"])
+    for _, r in ok[(ok["indicator"] == "payout_target") & ((ok["value"] < 0) | (ok["value"] > 300))].iterrows():
+        add(SEV_WARN, "Целевой payout вне диапазона", f"{r['value']}%: ожидается значение от 0 до 300 (в процентах).", r["ticker"], r["year"], "payout_target", r["line"])
     for _, r in ok[(ok["indicator"] == "dps") & (ok["value"] < 0)].iterrows():
         add(SEV_ERR, "Дивиденд < 0", f"Значение {r['value']} выглядит ошибочным.", r["ticker"], r["year"], "dps", r["line"])
     for _, r in ok[(ok["indicator"] == "revenue") & (ok["value"] <= 0)].iterrows():
