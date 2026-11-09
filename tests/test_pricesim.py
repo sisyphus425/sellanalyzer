@@ -114,7 +114,7 @@ def test_quantile_table_dates_and_widening(app):
     width = q["p90"] - q["p10"]
     assert width.iloc[-1] > width.iloc[20] > width.iloc[0]
     dates = res["dates"]
-    assert len(dates) == 126 and dates[0] > prices["begin"].iloc[-1] and (dates.dayofweek < 5).all()
+    assert len(dates) == 126 and dates[0] > prices["begin"].iloc[-1] and (dates.day_of_week < 5).all()
 
 
 def test_risk_metrics_on_a_known_sample(app):

@@ -14,6 +14,7 @@ from salesanalyzer.data_sources.moex import get_moex_candles, get_moex_name
 from salesanalyzer.data_sources.yahoo import get_us_data, get_us_prices
 from salesanalyzer.ui.forecast import render_forecast
 from salesanalyzer.ui.dividends import render_dividend_forecast
+from salesanalyzer.ui.pricelab import render_pricelab
 from salesanalyzer.core.dividends import policy_from_rows
 from salesanalyzer.config import UNIT_TO_BN
 from salesanalyzer.ui.price_range import render_price_range
@@ -58,14 +59,14 @@ def single_view():
 
         ru_orig = ru_all[ru_all["ticker"] == ticker]
         ru_long = ru_orig
-        market_tables_, forecast_tables_, range_tables_, whatif_tables_, div_tables_ = {}, {}, {}, {}, {}
+        market_tables_, forecast_tables_, range_tables_, whatif_tables_, div_tables_, lab_tables_ = {}, {}, {}, {}, {}, {}
         if not ru_long.empty:
             to_rub, real, base_year, macro = adjustment_controls(list(ru_long["unit"].unique()), f"single_{ticker}")
             ru_long, adj_notes = adjust_long(ru_long, to_rub, real, base_year, macro)
             render_adjustment_info(macro, to_rub, real, base_year, adj_notes)
         rows = ru_long[ru_long["indicator"] == "revenue"].rename(columns={"value": "revenue"}).drop(columns=["indicator"])
 
-        tab_rev, tab_prof, tab_fc, tab_div, tab_wi, tab_mkt, tab_price, tab_pr = st.tabs(["Выручка (МСФО)", "Прибыльность", "Прогноз", "Прогноз дивидендов", "Что если", "Мультипликаторы и дивиденды", "Цена акции", "Диапазон цены"])
+        tab_rev, tab_prof, tab_fc, tab_div, tab_wi, tab_mkt, tab_price, tab_pr, tab_lab = st.tabs(["Выручка (МСФО)", "Прибыльность", "Прогноз", "Прогноз дивидендов", "Что если", "Мультипликаторы и дивиденды", "Цена акции", "Диапазон цены", "Лаборатория (ML/ARIMA)"])
 
         with tab_rev:
             if rows.empty:
@@ -156,11 +157,20 @@ def single_view():
             if range_prices is not None:
                 range_tables_ = render_price_range(range_prices, ticker, "₽", GREEN, f"ru_{ticker}")
 
+        with tab_lab:
+            try:
+                lab_prices = get_moex_candles(ticker)
+            except DataSourceError as e:
+                lab_prices = None
+                show_data_error(e, f"lab_{ticker}")
+            if lab_prices is not None:
+                lab_tables_ = render_pricelab(lab_prices, ticker, "₽", GREEN, f"ru_{ticker}")
+
         ru_export_rows = ru_long
         if not ru_export_rows.empty:
             st.divider()
             w_e, unit_e, _ = make_wide(ru_export_rows)
-            render_export({**export_tables(w_e, unit_e, ru_export_rows, ticker), **market_tables_, **forecast_tables_, **range_tables_, **whatif_tables_, **div_tables_}, f"{ticker}_financials")
+            render_export({**export_tables(w_e, unit_e, ru_export_rows, ticker), **market_tables_, **forecast_tables_, **range_tables_, **whatif_tables_, **div_tables_, **lab_tables_}, f"{ticker}_financials")
     else:
         try:
             with st.spinner(f"Загружаем данные для {ticker}..."):
@@ -175,8 +185,8 @@ def single_view():
         st.subheader(f"🏢 {data['name']}")
         site = data["website"]
         st.write(f"**Сектор:** {data['sector']} | **Сайт:** {f'[{site}]({site})' if site else '—'}")
-        market_tables_, forecast_tables_, range_tables_, whatif_tables_ = {}, {}, {}, {}
-        tab_rev, tab_prof, tab_fc, tab_wi, tab_mkt, tab_price, tab_pr = st.tabs(["Выручка", "Прибыльность", "Прогноз", "Что если", "Мультипликаторы и дивиденды", "Цена акции", "Диапазон цены"])
+        market_tables_, forecast_tables_, range_tables_, whatif_tables_, lab_tables_ = {}, {}, {}, {}, {}
+        tab_rev, tab_prof, tab_fc, tab_wi, tab_mkt, tab_price, tab_pr, tab_lab = st.tabs(["Выручка", "Прибыльность", "Прогноз", "Что если", "Мультипликаторы и дивиденды", "Цена акции", "Диапазон цены", "Лаборатория (ML/ARIMA)"])
 
         with tab_rev:
             if data["df"] is None:
@@ -236,6 +246,15 @@ def single_view():
             if range_prices is not None:
                 range_tables_ = render_price_range(range_prices, ticker, data["currency"], BLUE, f"us_{ticker}")
 
+        with tab_lab:
+            try:
+                lab_prices = get_us_prices(ticker)
+            except Exception as e:
+                lab_prices = None
+                show_data_error(e, f"lab_{ticker}")
+            if lab_prices is not None:
+                lab_tables_ = render_pricelab(lab_prices, ticker, data["currency"], BLUE, f"us_{ticker}")
+
         if not data["wide"].empty:
             st.divider()
-            render_export({**export_tables(data["wide"], "$", None, ticker), **market_tables_, **forecast_tables_, **range_tables_, **whatif_tables_}, f"{ticker}_financials")
+            render_export({**export_tables(data["wide"], "$", None, ticker), **market_tables_, **forecast_tables_, **range_tables_, **whatif_tables_, **lab_tables_}, f"{ticker}_financials")
