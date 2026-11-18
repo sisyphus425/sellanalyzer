@@ -48,13 +48,14 @@ salesanalyzer/          (папка целиком)
 caddy/                  (папка целиком)
 financials_ru.csv
 macro_ru.csv
+dividends_ru.csv
 ```
 
 С компьютера на Windows (PowerShell, из папки проекта; `user` и `IP` замените своими):
 
 ```powershell
 ssh user@IP "sudo mkdir -p /opt/sellanalyzer && sudo chown user /opt/sellanalyzer"
-scp -r Dockerfile docker-compose.yml requirements-prod.txt streamlit_app.py salesanalyzer .streamlit caddy financials_ru.csv macro_ru.csv user@IP:/opt/sellanalyzer/
+scp -r Dockerfile docker-compose.yml requirements-prod.txt streamlit_app.py salesanalyzer .streamlit caddy financials_ru.csv macro_ru.csv dividends_ru.csv user@IP:/opt/sellanalyzer/
 ```
 
 Либо загрузите проект через Git, если он у вас в репозитории (в нём не должно быть пароля: `caddy/Caddyfile` и `data/` указаны в `.gitignore`).
@@ -66,7 +67,7 @@ scp -r Dockerfile docker-compose.yml requirements-prod.txt streamlit_app.py sale
 ```bash
 cd /opt/sellanalyzer
 mkdir -p data
-cp financials_ru.csv macro_ru.csv data/
+cp financials_ru.csv macro_ru.csv dividends_ru.csv data/
 chmod -R a+rX data          # контейнер работает не от root и должен уметь читать файлы
 ```
 
@@ -111,7 +112,7 @@ docker compose logs -f app         # журнал приложения (выхо
 **Обновить данные** (CSV): отредактируйте файлы в `data/` на сервере или загрузите новые с компьютера:
 
 ```powershell
-scp financials_ru.csv macro_ru.csv user@IP:/opt/sellanalyzer/data/
+scp financials_ru.csv macro_ru.csv dividends_ru.csv user@IP:/opt/sellanalyzer/data/
 ```
 
 Пересборка и перезапуск не нужны: обновите страницу в браузере. После правки откройте режим **«Контроль данных»**,

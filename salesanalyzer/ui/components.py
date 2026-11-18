@@ -14,6 +14,7 @@ from salesanalyzer.core.market import market_tables
 from salesanalyzer.core.prices import add_price_indicators, price_metrics, trend_label
 from salesanalyzer.core.profitability import add_margins, latest_value
 from salesanalyzer.data_sources.csv_store import load_macro
+from salesanalyzer.ui.benchmark import render_total_return, render_vs_market
 from salesanalyzer.ui.compat import rerun, show_chart, show_table
 from salesanalyzer.config import PRICE_PERIOD_OPTIONS
 
@@ -274,8 +275,10 @@ def render_market_stats(stats, payout: pd.DataFrame, notes: list, color: str) ->
     return market_tables(stats, payout)
 
 
-def render_price(prices: pd.DataFrame, ticker: str, currency: str, color: str):
-    """Вкладка 'Цена акции': метрики риска и доходности, график со скользящими средними, график просадки."""
+def render_price(prices: pd.DataFrame, ticker: str, currency: str, color: str, dividends=None, market=None, bench_loader=None,
+                 no_div_hint: str = ""):
+    """Вкладка 'Цена акции': метрики риска и доходности, график со скользящими средними, график просадки,
+    полная доходность с дивидендами (dividends: ex_date, dps) и сравнение с индексом рынка (market: ru/us, bench_loader)."""
     if prices.empty:
         st.info("История цен недоступна для этого тикера.")
         return
@@ -290,7 +293,7 @@ def render_price(prices: pd.DataFrame, ticker: str, currency: str, color: str):
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric(f"Последняя цена закрытия, {currency}", f"{m['last']:,.2f}")
-    c2.metric("Доходность за период", f"{m['total']:.1f}%", delta=f"{m['total']:.1f}%")
+    c2.metric("Доходность за период", f"{m['total']:.1f}%", delta=f"{m['total']:.1f}%", help="Только по цене, без дивидендов (с дивидендами — ниже).")
     c3.metric("Волатильность (год)", "н/д" if m["vol"] is None else f"{m['vol']:.1f}%",
               help="Стандартное отклонение дневной доходности × √252. Чем выше, тем сильнее колебания цены.")
     c4.metric("Макс. просадка", f"{m['max_dd']:.1f}%",
@@ -320,10 +323,24 @@ def render_price(prices: pd.DataFrame, ticker: str, currency: str, color: str):
 
     st.caption("MA — среднее цен закрытия за 50 и 200 торговых дней. Просадка — падение от предыдущего максимума. "
                "Прошлые показатели не гарантируют будущих результатов; это справочная аналитика, а не рекомендация.")
-    out = p.assign(drawdown=p["drawdown"].round(2)).rename(columns={
-        "begin": "Дата", "close": f"Цена закрытия, {currency}", "ma50": "MA50", "ma200": "MA200", "drawdown": "Просадка, %"})
+
+    st.divider()
+    tr = render_total_return(p[["begin", "close"]], dividends, ticker, currency, color, no_div_hint)
+    bench_out = None
+    if market is not None and bench_loader is not None:
+        st.divider()
+        bench_out = render_vs_market(p[["begin", "close"]], tr, market, bench_loader, ticker, color, ticker)
+
+    out = p.assign(drawdown=p["drawdown"].round(2))
+    if tr is not None:
+        out = out.merge(tr[["begin", "div", "tr"]], on="begin", how="left")
+    out = out.rename(columns={"begin": "Дата", "close": f"Цена закрытия, {currency}", "ma50": "MA50", "ma200": "MA200",
+                              "drawdown": "Просадка, %", "div": f"Дивиденд, {currency}", "tr": "Полная доходность (индекс)"})
     st.download_button("⬇️ Скачать цены и метрики (CSV)", data=to_csv_bytes(out), mime="text/csv",
                        key=f"dl_price_{ticker}", file_name=f"{ticker}_prices.csv")
+    if bench_out is not None:
+        st.download_button("⬇️ Скачать сравнение с рынком (CSV)", data=to_csv_bytes(bench_out), mime="text/csv",
+                           key=f"dl_bench_{ticker}", file_name=f"{ticker}_vs_market.csv")
 
 
 def adjustment_controls(units: list, key: str):

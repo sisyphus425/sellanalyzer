@@ -69,12 +69,12 @@ def get_moex_name(ticker: str):
     return dict(zip(desc["name"], desc["value"])).get("NAME", ticker)
 
 
-@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
-def get_moex_candles(ticker: str, years: int = PRICE_HISTORY_YEARS) -> pd.DataFrame:
+def _load_candles(market: str, secid: str, years: int) -> pd.DataFrame:
+    """Дневные свечи ISS за `years` лет. market: shares (акции) или index (индексы)."""
     start = (date.today() - timedelta(days=365 * years)).isoformat()
     frames, cursor = [], 0
     while True:  # ISS отдает ограниченное число свечей за запрос, поэтому грузим страницами
-        df = iss_get(f"engines/stock/markets/shares/securities/{ticker}/candles",
+        df = iss_get(f"engines/stock/markets/{market}/securities/{secid}/candles",
                      interval=24, **{"from": start, "start": cursor}).get("candles")
         if df is None or df.empty:
             break
@@ -87,3 +87,14 @@ def get_moex_candles(ticker: str, years: int = PRICE_HISTORY_YEARS) -> pd.DataFr
     out = pd.concat(frames, ignore_index=True)
     out["begin"] = pd.to_datetime(out["begin"])
     return out
+
+
+@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
+def get_moex_candles(ticker: str, years: int = PRICE_HISTORY_YEARS) -> pd.DataFrame:
+    return _load_candles("shares", ticker, years)
+
+
+@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
+def get_moex_index_candles(secid: str, years: int = PRICE_HISTORY_YEARS) -> pd.DataFrame:
+    """Дневные значения индекса Мосбиржи (IMOEX, MCFTR и др.): колонки begin, close и др."""
+    return _load_candles("index", secid, years)

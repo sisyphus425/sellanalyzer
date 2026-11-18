@@ -15,6 +15,8 @@ CSV_PATH = DATA_DIR / "financials_ru.csv"
 REQUIRED_COLS = ["ticker", "year", "indicator", "value", "unit", "metric", "is_estimate", "source", "note"]
 MACRO_PATH = DATA_DIR / "macro_ru.csv"
 MACRO_COLS = ["year", "indicator", "value", "unit", "source", "note"]
+DIVIDENDS_PATH = DATA_DIR / "dividends_ru.csv"  # выплаты дивидендов РФ с датами отсечки (для полной доходности)
+DIVIDEND_EVENT_COLS = ["ticker", "ex_date", "dps", "unit", "fiscal_year", "source", "note"]
 
 # --- Сеть: таймауты и повторные попытки ---
 REQUEST_TIMEOUT = 10  # секунд на один запрос
@@ -24,6 +26,14 @@ RETRY_STATUSES = (429, 500, 502, 503, 504)  # коды HTTP, при которы
 ISS_PAGE_SIZE = 500  # максимум свечей за один запрос ISS
 PRICE_HISTORY_YEARS = 3  # глубина загружаемой истории цен, лет
 PRICE_PERIOD_OPTIONS = (1, 2, 3)  # периоды на вкладках цены, лет
+
+# --- Сравнение с индексом рынка и полная доходность ---
+# рынок -> (тикер индекса цен, название), (тикер индекса полной доходности, название). РФ: Мосбиржа, США: Yahoo Finance
+BENCHMARKS = {
+    "ru": {"price": ("IMOEX", "Индекс МосБиржи"), "total": ("MCFTR", "Индекс МосБиржи полной доходности")},
+    "us": {"price": ("^GSPC", "S&P 500"), "total": ("^SP500TR", "S&P 500 полной доходности")},
+}
+BENCHMARK_MIN_DAYS = 60  # минимум общих торговых дней с индексом для беты и корреляции
 
 # --- Прогноз показателей ---
 FORECAST_HORIZONS = (1, 2)  # на сколько лет вперед можно строить прогноз

@@ -96,6 +96,7 @@ APP_MODULES = [
     "core.formatting", "core.growth", "core.profitability", "core.adjustments", "core.prices", "core.market",
     "core.comparison", "core.validation", "core.exports", "services",
     "data_sources.errors", "data_sources.retry", "ui.compat", "core.forecast", "core.pricesim", "core.whatif", "core.dividends", "core.pricelab",
+    "core.benchmark",
 ]
 
 

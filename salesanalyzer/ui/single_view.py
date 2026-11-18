@@ -9,9 +9,9 @@ from salesanalyzer.core.exports import export_tables
 from salesanalyzer.core.market import market_stats_ru, market_stats_us
 from salesanalyzer.core.prices import last_close
 from salesanalyzer.core.profitability import make_wide
-from salesanalyzer.data_sources.csv_store import load_macro, load_revenue_csv, load_ru_all
-from salesanalyzer.data_sources.moex import get_moex_candles, get_moex_name
-from salesanalyzer.data_sources.yahoo import get_us_data, get_us_prices
+from salesanalyzer.data_sources.csv_store import load_dividends_ru, load_macro, load_revenue_csv, load_ru_all
+from salesanalyzer.data_sources.moex import get_moex_candles, get_moex_index_candles, get_moex_name
+from salesanalyzer.data_sources.yahoo import get_us_data, get_us_dividend_events, get_us_prices
 from salesanalyzer.ui.forecast import render_forecast
 from salesanalyzer.ui.dividends import render_dividend_forecast
 from salesanalyzer.ui.pricelab import render_pricelab
@@ -144,7 +144,9 @@ def single_view():
 
         with tab_price:
             try:
-                render_price(get_moex_candles(ticker), ticker, "₽", GREEN)
+                render_price(get_moex_candles(ticker), ticker, "₽", GREEN, dividends=load_dividends_ru(ticker), market="ru",
+                             bench_loader=get_moex_index_candles,
+                             no_div_hint=f"Даты отсечки можно добавить в файл {config.DIVIDENDS_PATH.name}.")
             except DataSourceError as e:
                 show_data_error(e, f"price_{ticker}")
 
@@ -233,7 +235,8 @@ def single_view():
 
         with tab_price:
             try:
-                render_price(get_us_prices(ticker), ticker, data["currency"], BLUE)
+                render_price(get_us_prices(ticker), ticker, data["currency"], BLUE, dividends=get_us_dividend_events(ticker),
+                             market="us", bench_loader=get_us_prices)
             except Exception as e:
                 show_data_error(e, f"price_{ticker}")
 

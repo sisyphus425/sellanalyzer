@@ -203,6 +203,20 @@ def test_candles_empty_answer_gives_empty_table(app, moex, monkeypatch):
     assert moex.get_moex_candles("ZZZZ", 1).empty
 
 
+
+def test_index_candles_use_the_index_market(app, moex, monkeypatch):
+    paths = []
+
+    def fake_iss_get(path, **params):
+        paths.append(path)
+        return {"candles": pd.DataFrame({"begin": ["2026-01-05 00:00:00"], "close": [3000.0]})}
+
+    monkeypatch.setattr(moex, "iss_get", fake_iss_get)
+    out = moex.get_moex_index_candles("IMOEX", 1)
+    assert paths == ["engines/stock/markets/index/securities/IMOEX/candles"] and out["close"].tolist() == [3000.0]
+    assert str(out["begin"].dtype).startswith("datetime64")
+
+
 # ---------- Yahoo Finance ----------
 
 class FakeTicker:
@@ -224,7 +238,7 @@ class FakeTicker:
     financials = property(lambda self: self._get("financials"))
     dividends = property(lambda self: self._get("dividends"))
 
-    def history(self, period=None, interval=None):
+    def history(self, period=None, interval=None, **kwargs):
         self.counts["history"] += 1
         if isinstance(self._history, Exception):
             raise self._history
@@ -309,6 +323,29 @@ def test_us_prices(app, yahoo, monkeypatch):
     out = yahoo.get_us_prices("AAPL", 1)
     assert out.columns.tolist() == ["begin", "close"] and out["close"].tolist() == [10.0, 11.0]
     assert out["begin"].dt.tz is None
+
+
+def test_us_history_is_not_adjusted_for_dividends_and_gives_dividend_events(app, yahoo, monkeypatch):
+    idx = pd.to_datetime(["2025-01-02", "2025-01-03", "2025-01-06"]).tz_localize("America/New_York")
+    hist = pd.DataFrame({"Close": [10.0, 9.5, 9.6], "Dividends": [0.0, 0.5, 0.0]}, index=idx)
+    calls = []
+
+    class T(FakeTicker):
+        def history(self, period=None, interval=None, **kwargs):
+            calls.append(kwargs)
+            return hist
+
+    install(monkeypatch, yahoo, T())
+    assert yahoo.get_us_prices("KO", 1)["close"].tolist() == [10.0, 9.5, 9.6]
+    ev = yahoo.get_us_dividend_events("KO", 1)
+    assert ev["ex_date"].tolist() == [pd.Timestamp("2025-01-03")] and ev["dps"].tolist() == [0.5]
+    assert calls and all(c.get("auto_adjust") is False for c in calls)
+
+
+def test_us_dividend_events_when_history_has_no_dividends(app, yahoo, monkeypatch):
+    hist = pd.DataFrame({"Close": [10.0]}, index=pd.to_datetime(["2025-01-02"]).tz_localize("America/New_York"))
+    install(monkeypatch, yahoo, FakeTicker(history=hist))
+    assert yahoo.get_us_dividend_events("^GSPC", 1).empty
 
 
 def test_us_prices_empty_and_failure(app, yahoo, monkeypatch):
