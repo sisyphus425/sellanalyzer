@@ -15,7 +15,7 @@ from salesanalyzer.core.profitability import latest_value
 from salesanalyzer.data_sources.csv_store import load_macro, load_revenue_csv, load_ru_all
 from salesanalyzer.data_sources.moex import get_moex_candles
 from salesanalyzer.data_sources.yahoo import get_us_data, get_us_prices
-from salesanalyzer.services import collect_prices, collect_profit, collect_revenue
+from salesanalyzer.services import benchmark_table, collect_prices, collect_profit, collect_revenue
 from salesanalyzer.ui.forecast import render_forecast_comparison
 from salesanalyzer.ui.components import adjustment_controls, render_adjustment_info, render_export
 from salesanalyzer.ui.compat import show_chart, show_table
@@ -200,29 +200,47 @@ def comparison_view():
             st.caption("⚠️ " + n)
 
     with tab_price:
-        years = st.selectbox("Период:", list(PRICE_PERIOD_OPTIONS), index=0, format_func=lambda y: f"{y} г.")
+        c1, c2, c3 = st.columns([1, 2, 2])
+        with c1:
+            years = st.selectbox("Период:", list(PRICE_PERIOD_OPTIONS), index=0, format_func=lambda y: f"{y} г.")
+        with c2:
+            with_index = st.checkbox("Добавить индекс рынка", value=True, key="cmp_index",
+                                     help="IMOEX для российских бумаг, S&P 500 для зарубежных. Показывается пунктиром.")
+        with c3:
+            total = st.checkbox("С дивидендами (полная доходность)", value=False, key="cmp_total",
+                                help="Дивиденды реинвестируются в ту же бумагу в день отсечки; индексы берутся тоже полной доходности "
+                                     f"(MCFTR, S&P 500 TR). Даты выплат: {config.DIVIDENDS_PATH.name} для РФ, Yahoo Finance для зарубежных.")
         with st.spinner("Загружаем цены..."):
-            prices = collect_prices(ru_sel, us_sel, years, problems)
+            prices = collect_prices(ru_sel, us_sel, years, problems, with_index=with_index, total=total)
         if prices.empty:
             st.info("История цен недоступна.")
         else:
             start_date = prices["begin"].min().date()
-            fig = px.line(prices, x="begin", y="index", color="label",
-                          title=f"Цена закрытия (старт с {start_date} = 100)")
+            what = "Полная доходность" if total else "Цена закрытия"
+            fig = px.line(prices, x="begin", y="index", color="label", line_dash="is_benchmark",
+                          line_dash_map={False: "solid", True: "dot"}, title=f"{what} (старт с {start_date} = 100)")
+            fig.for_each_trace(lambda tr: tr.update(name=tr.name.split(",")[0]))
             fig.add_hline(y=100, line_dash="dot", line_color="gray")
             fig.update_layout(xaxis_title="Дата", yaxis_title="Индекс", legend_title="")
             show_chart(fig)
             st.markdown("#### Метрики доходности и риска")
             pm = price_metrics_table(prices)
+            bt = benchmark_table(prices, ru_sel, total) if with_index else pd.DataFrame()
+            if not pm.empty and not bt.empty:
+                pm = pm.merge(bt, on="Компания", how="left")
             if not pm.empty:
                 show_table(pm.set_index("Компания"))
-                st.caption("Считаются по ценам за выбранный период (с общей даты старта). Волатильность — "
-                           "годовая; просадка — от максимума внутри периода. MA200 на коротком периоде может быть недоступна (н/д).")
+                st.caption(("Полная доходность: цена + дивиденды, вложенные в ту же бумагу в день отсечки (налог не учитывается). "
+                            if total else "") +
+                           "Считаются за выбранный период (с общей даты старта). Волатильность — годовая; просадка — от максимума "
+                           "внутри периода. MA200 на коротком периоде может быть недоступна (н/д). Бета — насколько в среднем бумага "
+                           "меняется при изменении индекса своего рынка на 1% (по дневным доходностям).")
                 st.download_button("⬇️ Скачать метрики (CSV)", key="dl_cmp_pm", mime="text/csv",
                                    data=to_csv_bytes(pm), file_name="comparison_price_metrics.csv")
             st.download_button("⬇️ Скачать индекс цен (CSV)", key="dl_cmp_prices", mime="text/csv",
-                               data=to_csv_bytes(prices.rename(columns={"begin": "Дата", "label": "Компания",
-                                                                        "close": "Цена закрытия", "index": "Индекс"})),
+                               data=to_csv_bytes(prices.drop(columns="is_benchmark").rename(columns={
+                                   "begin": "Дата", "label": "Компания", "close": "Полная доходность" if total else "Цена закрытия",
+                                   "index": "Индекс"})),
                                file_name="comparison_prices.csv")
             st.caption("Цены каждой бумаги в ее валюте (₽ или $), поэтому сравниваются изменения в процентах, "
                        "а не сами цены. Старт — общая дата, с которой есть данные по всем выбранным бумагам.")

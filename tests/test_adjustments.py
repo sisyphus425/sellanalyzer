@@ -115,3 +115,19 @@ def test_load_macro_reads_both_series(app, macro):
     assert set(macro) == {"usd_rub", "cpi"}
     assert all(2022 <= y <= 2025 for y in macro["usd_rub"]) and macro["usd_rub"][2022] == pytest.approx(68.5494)
     assert macro["cpi"][2025] == pytest.approx(5.59) and not any(math.isnan(v) for v in macro["cpi"].values())
+
+
+def test_dividends_file_missing_gives_empty_table(app, cfg, monkeypatch, tmp_path):
+    monkeypatch.setattr(cfg, "DIVIDENDS_PATH", tmp_path / "нет.csv")
+    assert app.load_dividends_ru("SBER").empty
+
+
+def test_dividends_file_is_filtered_by_ticker_and_parsed(app, cfg, monkeypatch, tmp_path):
+    path = tmp_path / "dividends_ru.csv"
+    path.write_text("ticker,ex_date,dps,unit,fiscal_year,source,note\n"
+                    "sber,2025-07-18,34.84,₽ на акцию,2024,s,\nLKOH,2025-06-03,541,₽ на акцию,,s,\nSBER,кривая дата,1,₽ на акцию,,s,\n",
+                    encoding="utf-8")
+    monkeypatch.setattr(cfg, "DIVIDENDS_PATH", path)
+    sber = app.load_dividends_ru("SBER")
+    assert len(sber) == 1 and sber["dps"].iloc[0] == 34.84 and int(sber["fiscal_year"].iloc[0]) == 2024
+    assert len(app.load_dividends_ru()) == 2

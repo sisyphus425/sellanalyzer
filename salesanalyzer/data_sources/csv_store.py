@@ -1,10 +1,11 @@
-"""Чтение файлов данных: financials_ru.csv (показатели компаний РФ) и macro_ru.csv (курс ЦБ, инфляция)."""
+"""Чтение файлов данных: financials_ru.csv (показатели компаний РФ), macro_ru.csv (курс ЦБ, инфляция)
+и dividends_ru.csv (выплаты дивидендов с датами отсечки)."""
 
 import pandas as pd
 import streamlit as st
 
 from salesanalyzer import config
-from salesanalyzer.config import MACRO_COLS, REQUIRED_COLS
+from salesanalyzer.config import DIVIDEND_EVENT_COLS, MACRO_COLS, REQUIRED_COLS
 
 
 @st.cache_data(show_spinner=False)
@@ -75,3 +76,33 @@ def load_macro() -> dict:
 def read_raw_csv() -> pd.DataFrame:
     """Сырой файл без преобразований: все значения как текст."""
     return pd.read_csv(config.CSV_PATH, encoding="utf-8-sig", dtype=str, keep_default_na=False)
+
+
+@st.cache_data(show_spinner=False)
+def _read_dividends(path: str, mtime: float) -> pd.DataFrame:
+    df = pd.read_csv(path, encoding="utf-8-sig", dtype={c: str for c in ("ticker", "unit", "source", "note")})
+    missing = [c for c in DIVIDEND_EVENT_COLS if c not in df.columns]
+    if missing:
+        raise ValueError("в файле нет колонок: " + ", ".join(missing))
+    df["ticker"] = df["ticker"].str.strip().str.upper()
+    df["ex_date"] = pd.to_datetime(df["ex_date"], errors="coerce")
+    df["dps"] = pd.to_numeric(df["dps"], errors="coerce")
+    df["fiscal_year"] = pd.to_numeric(df["fiscal_year"], errors="coerce").astype("Int64")
+    for col in ("unit", "source", "note"):
+        df[col] = df[col].fillna("").astype(str)
+    return df.dropna(subset=["ex_date", "dps"]).sort_values(["ticker", "ex_date"]).reset_index(drop=True)
+
+
+def load_dividends_ru(ticker=None) -> pd.DataFrame:
+    """Выплаты дивидендов из dividends_ru.csv (все или по одному тикеру). Пустая таблица, если файла нет."""
+    empty = pd.DataFrame(columns=DIVIDEND_EVENT_COLS)
+    if not config.DIVIDENDS_PATH.exists():
+        return empty
+    try:
+        df = _read_dividends(str(config.DIVIDENDS_PATH), config.DIVIDENDS_PATH.stat().st_mtime)
+    except ValueError as e:
+        st.error(f"Ошибка в файле {config.DIVIDENDS_PATH.name}: {e}")
+        return empty
+    if ticker is not None:
+        df = df[df["ticker"] == str(ticker).upper()].reset_index(drop=True)
+    return df

@@ -1,4 +1,4 @@
-"""Проверка самих файлов данных: ловит опечатки при ручном обновлении financials_ru.csv и macro_ru.csv."""
+"""Проверка самих файлов данных: ловит опечатки при ручном обновлении financials_ru.csv, macro_ru.csv и dividends_ru.csv."""
 import pytest
 
 E, W = "🔴 Ошибка", "🟡 Предупреждение"
@@ -112,3 +112,39 @@ def test_empty_environment_variable_means_default_folder(cfg, monkeypatch):
     finally:
         monkeypatch.delenv("SALESANALYZER_DATA_DIR", raising=False)
         importlib.reload(cfg)
+
+
+# ---------- dividends_ru.csv: выплаты с датами отсечки ----------
+
+@pytest.fixture(scope="module")
+def div_raw(cfg):
+    import pandas as pd
+    return pd.read_csv(cfg.DIVIDENDS_PATH, encoding="utf-8-sig", dtype=str, keep_default_na=False)
+
+
+def test_dividends_file_is_read_completely(app, div_raw, cfg):
+    events = app.load_dividends_ru()
+    assert list(div_raw.columns) == cfg.DIVIDEND_EVENT_COLS
+    assert len(events) == len(div_raw), "есть строки с некорректной датой или суммой"
+
+
+def test_dividend_rows_are_sane(app, div_raw):
+    import pandas as pd
+    events = app.load_dividends_ru()
+    assert set(events["ticker"]) <= set(TICKERS), "тикер, которого нет в financials_ru.csv"
+    assert (events["dps"] > 0).all()
+    assert (events["ex_date"] >= pd.Timestamp("2000-01-01")).all() and (events["ex_date"] <= pd.Timestamp.today() + pd.Timedelta(days=366)).all()
+    assert not events.duplicated(["ticker", "ex_date"]).any(), "две выплаты одной бумаги в один день: объедините их"
+    assert (div_raw["unit"] == "₽ на акцию").all() and (div_raw["source"].str.strip() != "").all()
+
+
+def test_dividend_payments_add_up_to_annual_dividend(app, ru_all):
+    """Где у выплаты указан финансовый год, сумма выплат за год совпадает с dps в financials_ru.csv."""
+    events = app.load_dividends_ru().dropna(subset=["fiscal_year"])
+    dps = ru_all[ru_all["indicator"] == "dps"].set_index(["ticker", "year"])["value"]
+    checked = 0
+    for (ticker, year), total in events.groupby(["ticker", "fiscal_year"])["dps"].sum().items():
+        if (ticker, int(year)) in dps.index:
+            assert total == pytest.approx(dps[(ticker, int(year))], abs=0.01), f"{ticker} {year}: выплаты {total} ≠ dps {dps[(ticker, int(year))]}"
+            checked += 1
+    assert checked >= 8

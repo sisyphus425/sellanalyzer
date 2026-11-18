@@ -17,7 +17,7 @@ COPY streamlit_app.py .
 COPY salesanalyzer ./salesanalyzer
 COPY .streamlit ./.streamlit
 # Данные по умолчанию (если папка /data не подключена как том). На сервере файлы подключаются из ./data, см. docker-compose.yml
-COPY financials_ru.csv macro_ru.csv /data/
+COPY financials_ru.csv macro_ru.csv dividends_ru.csv /data/
 
 RUN useradd --create-home --uid 10001 appuser && chown -R appuser /app /data
 USER appuser

@@ -96,11 +96,31 @@ def get_us_data(ticker: str):
 
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
-def get_us_prices(ticker: str, years: int = PRICE_HISTORY_YEARS) -> pd.DataFrame:
-    hist = _fetch(f"цены {ticker}", lambda: yf.Ticker(ticker).history(period=f"{years}y", interval="1d"))
+def _us_history(ticker: str, years: int) -> pd.DataFrame:
+    """Дневная история без поправки на дивиденды (auto_adjust=False): Close учитывает только дробления,
+    а выплаты лежат отдельно в колонке Dividends. Так цена совпадает с биржевой, а дивиденды учитываются явно."""
+    hist = _fetch(f"цены {ticker}", lambda: yf.Ticker(ticker).history(period=f"{years}y", interval="1d", auto_adjust=False))
     if hist is None or hist.empty:
+        return pd.DataFrame()
+    return hist
+
+
+def get_us_prices(ticker: str, years: int = PRICE_HISTORY_YEARS) -> pd.DataFrame:
+    """Цены закрытия: колонки begin (без часового пояса) и close."""
+    hist = _us_history(ticker, years)
+    if hist.empty:
         return pd.DataFrame()
     out = hist[["Close"]].reset_index()
     out.columns = ["begin", "close"]
     out["begin"] = pd.to_datetime(out["begin"]).dt.tz_localize(None)
     return out
+
+
+def get_us_dividend_events(ticker: str, years: int = PRICE_HISTORY_YEARS) -> pd.DataFrame:
+    """Выплаты дивидендов из той же истории: ex_date (день, с которого бумага торгуется без дивиденда) и dps."""
+    hist = _us_history(ticker, years)
+    if hist.empty or "Dividends" not in hist.columns:
+        return pd.DataFrame(columns=["ex_date", "dps"])
+    div = hist.loc[hist["Dividends"] > 0, "Dividends"]
+    return pd.DataFrame({"ex_date": pd.to_datetime(div.index).tz_localize(None).normalize(),
+                         "dps": div.values.astype(float)}).reset_index(drop=True)
