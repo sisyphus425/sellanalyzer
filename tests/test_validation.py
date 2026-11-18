@@ -166,3 +166,17 @@ def test_coverage_matrix_marks_published_estimates_and_gaps(app, mk_raw):
     cov = app.coverage_matrix(ok).set_index("Показатель")
     assert cov.loc["Выручка", "2023"] == "✓" and cov.loc["Выручка", "2024"] == "" and cov.loc["Выручка", "2025"] == "≈"
     assert app.coverage_matrix(ok.iloc[0:0]).empty
+
+
+def test_issues_for_display_has_single_type_columns(app, mk_raw):
+    """В «Год» смешаны число, пустое значение (проблема всего ряда) и текст некорректного года: на экран идёт одна колонка текста."""
+    rows = clean_rows() + [row(year="20x2"), row(ticker="Y", year=2025, value="50"), row(year=2022, value="4 089,0")]
+    issues, _ = check(app, mk_raw, rows)
+    kinds = set(map(type, issues["Год"]))
+    assert len(kinds) > 1  # исходная таблица действительно смешанная
+    shown = app.issues_for_display(issues)
+    assert all(isinstance(v, str) for v in shown["Год"])
+    assert {"20x2", "", "2022"} <= set(shown["Год"])
+    assert str(shown["Строка в файле"].dtype) == "Int64"
+    assert len(shown) == len(issues) and list(shown.columns) == list(issues.columns)
+    assert app.issues_for_display(issues.iloc[0:0]).empty

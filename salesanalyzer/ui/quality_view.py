@@ -8,7 +8,7 @@ import streamlit as st
 from salesanalyzer import config
 from salesanalyzer.config import INDICATOR_NAMES, SEV_ERR, SEV_ORDER, SEV_WARN
 from salesanalyzer.core.adjustments import price_levels
-from salesanalyzer.core.validation import coverage_matrix, validate_financials
+from salesanalyzer.core.validation import coverage_matrix, issues_for_display, validate_financials
 from salesanalyzer.data_sources.csv_store import load_macro, read_raw_csv
 from salesanalyzer.ui.components import render_export
 from salesanalyzer.ui.compat import show_table
@@ -60,7 +60,7 @@ def quality_view():
         else:
             chosen = st.multiselect("Показывать:", list(SEV_ORDER), default=list(SEV_ORDER))
             view = issues[issues["Серьезность"].isin(chosen)]
-            show_table(view, hide_index=True)
+            show_table(issues_for_display(view), hide_index=True)
             st.caption("Номер строки считается по файлу: строка 1 — заголовок. Информационные заметки не означают ошибку: "
                        "например, резкий рост прибыли может быть реальным, но его стоит сверить с источником.")
     with tab_cov:

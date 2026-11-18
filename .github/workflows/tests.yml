@@ -1,0 +1,68 @@
+# Автоматическая проверка на каждый push и pull request: тесты на нескольких версиях Python,
+# тесты с точными версиями библиотек из образа Docker и пробная сборка и запуск образа.
+name: Тесты
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    name: pytest (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.12", "3.13"]  # 3.9 — минимальная версия из README
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - run: pytest -q
+
+  pytest-prod:
+    name: pytest с версиями образа (requirements-prod.txt)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"  # как в Dockerfile
+          cache: pip
+          cache-dependency-path: requirements-prod.txt
+      - run: pip install -r requirements-prod.txt pytest
+      - run: pytest -q
+
+  docker:
+    name: Сборка и запуск образа Docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Сборка образа
+        run: docker build -t sellanalyzer:ci .
+      - name: Запуск контейнера и проверка /_stcore/health
+        run: |
+          docker run -d --name app -p 8501:8501 sellanalyzer:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8501/_stcore/health; then echo; echo "Приложение отвечает"; exit 0; fi
+            sleep 2
+          done
+          echo "Приложение не ответило за 60 с"; docker logs app; exit 1
+      - name: Журнал контейнера
+        if: always()
+        run: docker logs app || true
