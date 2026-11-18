@@ -185,3 +185,15 @@ def coverage_matrix(ok: pd.DataFrame) -> pd.DataFrame:
             rec[str(y)] = "" if sub.empty else ("≈" if sub["is_estimate"].any() else "✓")
         rows.append(rec)
     return pd.DataFrame(rows).sort_values(["Тикер", "_o"]).drop(columns="_o").reset_index(drop=True)
+
+
+def issues_for_display(issues: pd.DataFrame) -> pd.DataFrame:
+    """Таблица проблем для показа на экране: колонки с одним типом.
+    В «Год» бывают числа, пустые значения (проблема всего файла или ряда) и текст некорректного года из файла, поэтому колонка
+    приводится к тексту; номер строки делается целым с пропусками. Иначе Streamlit не может передать таблицу в браузер (Arrow)."""
+    if issues.empty:
+        return issues
+    out = issues.copy()
+    out["Год"] = out["Год"].map(lambda v: "" if v is None or (isinstance(v, float) and pd.isna(v)) else str(v))
+    out["Строка в файле"] = pd.to_numeric(out["Строка в файле"], errors="coerce").astype("Int64")
+    return out
