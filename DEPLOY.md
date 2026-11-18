@@ -126,7 +126,8 @@ docker compose up -d --build
 
 Перед отправкой кода на сервер запустите `pytest` на своём компьютере.
 
-**Обновить библиотеки** (например, `yfinance`, если Yahoo изменил формат ответов): пересоберите образ без кэша слоёв:
+**Обновить библиотеки** (например, `yfinance`, если Yahoo изменил формат ответов): версии в `requirements-prod.txt` зафиксированы,
+поэтому сначала поменяйте нужную версию в этом файле и прогоните `pytest` на своём компьютере, затем пересоберите образ без кэша слоёв:
 
 ```bash
 docker compose build --no-cache app && docker compose up -d
@@ -206,7 +207,7 @@ curl -s -o /dev/null -w "Yahoo:    HTTP %{http_code}\n" "https://query1.finance.
 | `Dockerfile` | Образ приложения на Python 3.12; запуск не от root; проверка работоспособности (healthcheck) |
 | `docker-compose.yml` | Два контейнера: приложение и Caddy; том с данными, том с сертификатами |
 | `docker-compose.local.yml` | Дополнение для локальной проверки: открывает `localhost:8501` |
-| `requirements-prod.txt` | Библиотеки образа (нижние границы версий) |
+| `requirements-prod.txt` | Библиотеки образа (точные версии, проверены на Python 3.12) |
 | `.streamlit/config.toml` | Настройки Streamlit для сервера (без сбора статистики, без отслеживания файлов) |
 | `caddy/Caddyfile.example` | Шаблон прокси: домен, логин, хэш пароля |
 | `.dockerignore`, `.gitignore` | Что не попадает в образ и в репозиторий |
