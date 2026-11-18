@@ -24,22 +24,23 @@ jobs:
       matrix:
         python: ["3.9", "3.12", "3.13"]  # 3.9 — минимальная версия из README
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python }}
-          cache: pip
-          cache-dependency-path: requirements-dev.txt
-      - run: pip install -r requirements-dev.txt
-      - run: pytest -q
+      - uses: actions/checkout@v5
+      # Python ставится через uv: setup-python не даёт старые версии (3.9) на новых раннерах Ubuntu
+      - name: Установка uv
+        run: pipx install uv
+      - name: Python ${{ matrix.python }} и зависимости
+        run: |
+          uv venv -p ${{ matrix.python }} .venv
+          uv pip install -p .venv/bin/python -r requirements-dev.txt
+      - run: .venv/bin/python -m pytest -q
 
   pytest-prod:
     name: pytest с версиями образа (requirements-prod.txt)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"  # как в Dockerfile
           cache: pip
@@ -52,7 +53,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Сборка образа
         run: docker build -t sellanalyzer:ci .
       - name: Запуск контейнера и проверка /_stcore/health
