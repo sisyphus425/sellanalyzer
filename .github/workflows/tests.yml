@@ -10,9 +10,12 @@ on:
 permissions:
   contents: read
 
+# Повторный push в ту же ветку или PR отменяет устаревшую проверку. Группа включает тип события и номер PR:
+# для уже слитого PR GitHub подставляет в github.ref ветку main, и проверка PR отменяла бы проверку main.
+# Проверки main не отменяются никогда: у каждого коммита main должен быть результат.
 concurrency:
-  group: tests-${{ github.ref }}
-  cancel-in-progress: true
+  group: tests-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   pytest:
