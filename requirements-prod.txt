@@ -1,8 +1,10 @@
-# Зависимости образа Docker. Нижние границы версий; после первой удачной сборки зафиксируйте точные версии:
-#   docker compose run --rm app pip freeze > requirements.lock   (и подставьте их сюда при желании)
-streamlit>=1.40
-pandas>=2.0
-plotly>=5.0
-requests>=2.31
-yfinance>=0.2.50
-openpyxl>=3.1
+# Зависимости образа Docker. Версии зафиксированы: с ними проходят все тесты и запускается приложение (Python 3.12).
+# Чтобы обновить библиотеку (например, yfinance при изменениях на стороне Yahoo), поменяйте версию здесь,
+# прогоните pytest и пересоберите образ: docker compose build --no-cache app && docker compose up -d
+streamlit==1.67.0
+pandas==3.1.1
+numpy==2.5.5
+plotly==7.1.0
+requests==2.34.2
+yfinance==1.8.0
+openpyxl==3.1.5
