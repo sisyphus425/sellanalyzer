@@ -7,7 +7,8 @@ from salesanalyzer.core.growth import add_growth
 from salesanalyzer.core.profitability import add_margins, make_wide
 from salesanalyzer.core.benchmark import add_total_return, compare_with_benchmark
 from salesanalyzer.data_sources.csv_store import load_dividends_ru
-from salesanalyzer.data_sources.moex import get_moex_candles, get_moex_index_candles
+from salesanalyzer.core.portfolio import rate_on, to_rub
+from salesanalyzer.data_sources.moex import get_fx_rub, get_moex_candles, get_moex_index_candles
 from salesanalyzer.data_sources.yahoo import get_us_data, get_us_dividend_events, get_us_prices
 from salesanalyzer.data_sources.errors import DataSourceError
 
@@ -136,3 +137,55 @@ def benchmark_table(prices: pd.DataFrame, ru_tickers, total=False) -> pd.DataFra
                      "Бета": None if m["beta"] is None else round(m["beta"], 2),
                      "Корреляция": None if m["corr"] is None else round(m["corr"], 2)})
     return pd.DataFrame(rows)
+
+
+def collect_portfolio(positions: pd.DataFrame, years: int, problems: list) -> dict:
+    """Данные для портфеля: по каждой бумаге цены и выплаты в рублях (для истории), в валюте бумаги (для календаря дивидендов),
+    последняя цена, валюта и курс. Бумаги без цен или без курса валюты пропускаются с сообщением в problems.
+    Возвращает {"rub": {тикер: {"prices", "dividends"}}, "orig_dividends": {...}, "last_price", "last_rate", "currency", "positions"}."""
+    out = {"rub": {}, "orig_dividends": {}, "last_price": {}, "last_rate": {}, "currency": {}, "positions": positions.iloc[0:0]}
+    fx_cache = {}
+    kept = []
+    for _, pos in positions.iterrows():
+        t, market = pos["ticker"], pos["market"]
+        try:
+            if market == "ru":
+                prices, events, currency = get_moex_candles(t, years), load_dividends_ru(t), "RUB"
+            else:
+                prices = get_us_prices(t, years)
+                events = get_us_dividend_events(t, years)
+                try:
+                    data = get_us_data(t)
+                    currency = (data or {}).get("currency") or "USD"
+                except Exception:
+                    currency = "USD"
+                    problems.append(f"{t}: валюта не загружена, принят доллар США")
+        except Exception as e:
+            problems.append(f"{t}: {e}" if isinstance(e, DataSourceError) else f"{t}: ошибка загрузки ({e})")
+            continue
+        if prices is None or prices.empty:
+            problems.append(f"{t}: нет цен на {'Мосбирже' if market == 'ru' else 'Yahoo Finance'} — бумага не включена "
+                            "(частную компанию в портфель добавить нельзя)")
+            continue
+        currency = str(currency).upper()
+        if currency != "RUB" and currency not in fx_cache:
+            try:
+                fx_cache[currency] = get_fx_rub(currency, years)
+            except DataSourceError as e:
+                fx_cache[currency] = None
+                problems.append(f"Курс {currency}/RUB не загружен: {e}")
+        fx = fx_cache.get(currency)
+        p_rub, ev_rub = to_rub(prices, events, currency, fx)
+        if p_rub is None:
+            problems.append(f"{t}: нет курса {currency}/RUB — бумага не включена")
+            continue
+        last = prices.sort_values("begin").iloc[-1]
+        out["rub"][t] = {"prices": p_rub, "dividends": ev_rub}
+        out["orig_dividends"][t] = events
+        out["last_price"][t] = float(last["close"])
+        out["last_rate"][t] = 1.0 if currency == "RUB" else float(rate_on([last["begin"]], fx)[0])
+        out["currency"][t] = currency
+        kept.append(pos)
+    if kept:
+        out["positions"] = pd.DataFrame(kept).reset_index(drop=True)
+    return out

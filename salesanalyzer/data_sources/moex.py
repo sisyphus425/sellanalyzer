@@ -120,3 +120,33 @@ def get_ofz_curve(on_date=None, lookback_days: int = 10) -> pd.DataFrame:
             out["tradedate"] = pd.to_datetime(out["tradedate"])
             return out.astype({"period": float, "value": float}).reset_index(drop=True)
     return pd.DataFrame(columns=["tradedate", "period", "value"])
+
+
+@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
+def get_fx_rub(currency: str = "USD", years: int = PRICE_HISTORY_YEARS) -> pd.DataFrame:
+    """Курс валюты к рублю по дням: индикативный курс Мосбиржи (рынок срочных контрактов, `indicativerates`), колонки begin, close.
+    Берется основной клиринг дня (вечерний), при его отсутствии — промежуточный. Индикативный курс публикуется непрерывно,
+    в том числе в 2024–2026 гг., когда биржевых торгов долларом не было. Пустая таблица, если курса нет."""
+    currency = currency.upper()
+    if currency in ("RUB", "SUR", "RUR"):
+        return pd.DataFrame(columns=["begin", "close"])
+    start = (date.today() - timedelta(days=365 * years + 7)).isoformat()
+    frames, cursor = [], 0
+    while True:
+        blocks = iss_get(f"statistics/engines/futures/markets/indicativerates/securities/{currency}/RUB",
+                         **{"from": start, "start": cursor, "limit": 1000})  # 1000 строк за запрос (по умолчанию 100)
+        df = blocks.get("securities")
+        if df is None or df.empty:
+            break
+        frames.append(df)
+        cursor += len(df)
+        info = blocks.get("securities.cursor")
+        total = int(info["TOTAL"].iloc[0]) if info is not None and not info.empty else cursor
+        if cursor >= total:
+            break
+    if not frames:
+        return pd.DataFrame(columns=["begin", "close"])
+    out = pd.concat(frames, ignore_index=True)
+    out["order"] = out["clearing"].map({"mc": 1, "tc": 0}).fillna(0)
+    out = out.sort_values(["tradedate", "order"]).drop_duplicates("tradedate", keep="last")
+    return pd.DataFrame({"begin": pd.to_datetime(out["tradedate"]), "close": out["rate"].astype(float)}).reset_index(drop=True)
