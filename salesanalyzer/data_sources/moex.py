@@ -1,4 +1,4 @@
-"""Мосбиржа (MOEX ISS API): название бумаги и история цен."""
+"""Мосбиржа (MOEX ISS API): название бумаги, история цен акций и индексов, кривая доходности ОФЗ."""
 
 from datetime import date, timedelta
 
@@ -98,3 +98,25 @@ def get_moex_candles(ticker: str, years: int = PRICE_HISTORY_YEARS) -> pd.DataFr
 def get_moex_index_candles(secid: str, years: int = PRICE_HISTORY_YEARS) -> pd.DataFrame:
     """Дневные значения индекса Мосбиржи (IMOEX, MCFTR и др.): колонки begin, close и др."""
     return _load_candles("index", secid, years)
+
+
+@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
+def get_ofz_curve(on_date=None, lookback_days: int = 10) -> pd.DataFrame:
+    """Кривая бескупонной доходности ОФЗ (G-кривая) Мосбиржи: колонки tradedate, period (срок, лет), value (доходность, %).
+    on_date=None — последняя доступная. Если на дату торгов не было (выходной, 31 декабря), берется ближайший
+    предыдущий торговый день (до lookback_days дней назад). Пустая таблица, если данных нет."""
+    if on_date is None:
+        dates = [None]
+    else:
+        d0 = pd.Timestamp(on_date).normalize()
+        dates = [(d0 - pd.Timedelta(days=i)).date().isoformat() for i in range(lookback_days + 1)]
+    for d in dates:
+        params = {"iss.only": "yearyields"}
+        if d is not None:
+            params["date"] = d
+        df = iss_get("engines/stock/zcyc", **params).get("yearyields")
+        if df is not None and not df.empty:
+            out = df[["tradedate", "period", "value"]].copy()
+            out["tradedate"] = pd.to_datetime(out["tradedate"])
+            return out.astype({"period": float, "value": float}).reset_index(drop=True)
+    return pd.DataFrame(columns=["tradedate", "period", "value"])

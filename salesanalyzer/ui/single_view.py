@@ -3,14 +3,14 @@
 import streamlit as st
 
 from salesanalyzer import config
-from salesanalyzer.config import BLUE, GREEN, GREEN_LIGHT
+from salesanalyzer.config import BLUE, GREEN, GREEN_LIGHT, VALUATION_HISTORY_YEARS
 from salesanalyzer.core.adjustments import adjust_long
 from salesanalyzer.core.exports import export_tables
 from salesanalyzer.core.market import market_stats_ru, market_stats_us
 from salesanalyzer.core.prices import last_close
 from salesanalyzer.core.profitability import make_wide
 from salesanalyzer.data_sources.csv_store import load_dividends_ru, load_macro, load_revenue_csv, load_ru_all
-from salesanalyzer.data_sources.moex import get_moex_candles, get_moex_index_candles, get_moex_name
+from salesanalyzer.data_sources.moex import get_moex_candles, get_moex_index_candles, get_moex_name, get_ofz_curve
 from salesanalyzer.data_sources.yahoo import get_us_data, get_us_dividend_events, get_us_prices
 from salesanalyzer.ui.forecast import render_forecast
 from salesanalyzer.ui.dividends import render_dividend_forecast
@@ -20,6 +20,8 @@ from salesanalyzer.config import UNIT_TO_BN
 from salesanalyzer.ui.price_range import render_price_range
 from salesanalyzer.ui.whatif import render_whatif
 from salesanalyzer.core.whatif import build_base
+from salesanalyzer.core.valuation import curve_yield, history_ru, history_us
+from salesanalyzer.ui.valuation import render_multiples_history, render_ofz_comparison
 from salesanalyzer.ui.components import adjustment_controls, render_adjustment_info, render_export, render_market_stats, render_price, render_profitability, render_revenue, show_data_error
 from salesanalyzer.data_sources.errors import DataSourceError
 
@@ -112,7 +114,12 @@ def single_view():
                     price_d = None
                     st.warning(f"{e} Доходность не считается без цены.")
                 est_d = {ind: set(g["year"]) for ind, g in rows_d[rows_d["is_estimate"]].groupby("indicator")}
-                div_tables_ = render_dividend_forecast(w_d, UNIT_TO_BN.get(unit_d, 1.0), shares_d, price_d, policy_from_rows(ru_orig), f"ru_{ticker}", GREEN, est_d)
+                try:
+                    ofz_d = curve_yield(get_ofz_curve(None), 1)
+                except DataSourceError:
+                    ofz_d = None
+                div_tables_ = render_dividend_forecast(w_d, UNIT_TO_BN.get(unit_d, 1.0), shares_d, price_d, policy_from_rows(ru_orig), f"ru_{ticker}", GREEN, est_d,
+                                                       ofz_yield=ofz_d)
 
         with tab_wi:
             if ru_orig.empty:
@@ -141,6 +148,16 @@ def single_view():
                     show_data_error(e, f"mkt_{ticker}")
                 stats_m, payout_m, notes_m = market_stats_ru(ru_orig, load_macro(), price_m, pdate_m)
                 market_tables_ = render_market_stats(stats_m, payout_m, notes_m, GREEN)
+                st.divider()
+                try:
+                    prices_v = get_moex_candles(ticker, VALUATION_HISTORY_YEARS)
+                except DataSourceError as e:
+                    prices_v = None
+                    st.caption(f"⚠️ История цен для мультипликаторов по годам не загружена: {e}")
+                hist_v, notes_v = history_ru(ru_orig, load_macro(), prices_v)
+                market_tables_.update(render_multiples_history(hist_v, stats_m, "₽", GREEN, notes_v))
+                st.divider()
+                market_tables_.update(render_ofz_comparison(stats_m, hist_v, load_dividends_ru(ticker), get_ofz_curve, f"ru_{ticker}", GREEN))
 
         with tab_price:
             try:
@@ -232,6 +249,14 @@ def single_view():
                 show_data_error(e, f"mkt_{ticker}")
             stats_m, payout_m, notes_m = market_stats_us(data, price_m, pdate_m)
             market_tables_ = render_market_stats(stats_m, payout_m, notes_m, BLUE)
+            st.divider()
+            try:
+                prices_v = get_us_prices(ticker, VALUATION_HISTORY_YEARS)
+            except Exception as e:
+                prices_v = None
+                st.caption(f"⚠️ История цен для мультипликаторов по годам не загружена: {e}")
+            hist_v, notes_v = history_us(data, prices_v)
+            market_tables_.update(render_multiples_history(hist_v, stats_m, data["currency"], BLUE, notes_v))
 
         with tab_price:
             try:

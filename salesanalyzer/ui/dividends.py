@@ -15,9 +15,10 @@ DISCLAIMER = ("Это арифметика допущений, а не обещ�
 YELLOW = "#F2B01E"
 
 
-def render_dividend_forecast(w, unit_to_bn, shares_mn, price, policy, key, color, estimates=None) -> dict:
+def render_dividend_forecast(w, unit_to_bn, shares_mn, price, policy, key, color, estimates=None, ofz_yield=None) -> dict:
     """w: таблица по годам в рублях (year, net_income, dps); unit_to_bn: множитель единиц в млрд; shares_mn: число акций, млн;
-    price: цена акции или None; policy: результат policy_from_rows или None. Возвращает таблицы для экспорта."""
+    price: цена акции или None; policy: результат policy_from_rows или None; ofz_yield: доходность ОФЗ 1 год, % (для сравнения).
+    Возвращает таблицы для экспорта."""
     if "net_income" not in w.columns or not w["net_income"].notna().any():
         st.info("Нет данных о чистой прибыли: прогноз дивидендов не строится.")
         return {}
@@ -72,6 +73,11 @@ def render_dividend_forecast(w, unit_to_bn, shares_mn, price, policy, key, color
               help="По низкому и высокому сценарию прибыли с прогноза.")
     m3.metric("Доходность к цене (база)", "н/д" if pd.isna(first["Дивидендная доходность (база), %"]) else f"{first['Дивидендная доходность (база), %']:.1f}%",
               help="Дивиденд базового сценария / текущая цена.")
+    fy = first["Дивидендная доходность (база), %"]
+    if ofz_yield is not None and not pd.isna(fy):
+        spread = fy - ofz_yield
+        st.caption(f"Для сравнения: ОФЗ на 1 год сейчас дают {ofz_yield:.2f}% (G-кривая Мосбиржи). Прогнозная дивидендная доходность "
+                   f"{'выше' if spread >= 0 else 'ниже'} на {abs(spread):.2f} п.п. Подробнее — вкладка «Мультипликаторы и дивиденды».")
     if res["reliability"]["label"] == "низкая":
         st.warning("Надёжность прогноза прибыли низкая: считайте дивиденд грубым ориентиром.")
 
