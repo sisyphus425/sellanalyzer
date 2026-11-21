@@ -6,14 +6,15 @@ import streamlit as st
 
 from salesanalyzer.config import MC_DAYS_PER_MONTH, MC_HORIZON_MONTHS
 from salesanalyzer.core.pricesim import (DRIFT_HIST, DRIFT_ZERO, MODEL_BOOTSTRAP, MODEL_GBM, VOL_EWMA, VOL_FULL, calibrate,
-                                         calibration_verdict, clean_prices, price_range)
+                                         calibration_verdict, clean_prices, price_range, project_dividends)
 from salesanalyzer.ui.compat import show_chart, show_table
 
 MODELS = {"Нормальная модель (GBM)": MODEL_GBM, "Бутстрап исторических доходностей": MODEL_BOOTSTRAP}
 VOLS = {"Свежая (EWMA)": VOL_EWMA, "За весь период": VOL_FULL}
 DRIFTS = {"Без роста (ожидаемая цена = текущей)": DRIFT_ZERO, "Историческая доходность": DRIFT_HIST}
+DIV_EXPECTED, DIV_NONE, DIV_MANUAL = "Ожидаемые (как за последние 12 мес.)", "Не учитывать", "Задать вручную"
 DISCLAIMER = ("Это не прогноз цены, а сценарии: какие цены были бы возможны при историческом разбросе доходностей. Модель не знает о новостях, "
-              "дивидендных гэпах, санкциях и других разовых событиях; реальная цена может выйти за любые коридоры. "
+              "санкциях и других разовых событиях; дивиденды учитываются только так, как задано выше. Реальная цена может выйти за любые коридоры. "
               "Справочная аналитика, не инвестиционная рекомендация.")
 
 
@@ -40,8 +41,32 @@ def _fan_chart(res, history, currency, color, ticker):
     show_chart(fig)
 
 
-def render_price_range(prices: pd.DataFrame, ticker: str, currency: str, color: str, key: str) -> dict:
-    """Диапазон будущей цены по истории цен. Возвращает таблицы для экспорта."""
+def _future_dividends(dividends, last_date, horizon_end, currency, key):
+    """Выбор ожидаемых выплат внутри горизонта. Возвращает (таблица ex_date, dps, source или None, подпись режима)."""
+    has_history = dividends is not None and len(dividends) > 0
+    options = ([DIV_EXPECTED] if has_history else []) + [DIV_NONE, DIV_MANUAL]
+    mode = st.radio("Дивиденды внутри горизонта:", options, horizontal=True, key=f"pr_div_{key}",
+                    help="В день отсечки цена падает примерно на сумму дивиденда. «Ожидаемые»: объявленные выплаты из данных "
+                         "и повтор выплат последних 12 месяцев через год с той же суммой — это допущение, а не прогноз.")
+    if mode == DIV_NONE:
+        return None, mode
+    if mode == DIV_MANUAL:
+        m1, m2 = st.columns(2)
+        with m1:
+            dps = st.number_input(f"Дивиденд на акцию, {currency}", min_value=0.0, value=0.0, step=1.0, key=f"pr_div_v_{key}")
+        with m2:
+            ex = st.date_input("Дата отсечки (первый день без дивиденда)", value=(pd.Timestamp(last_date) + pd.DateOffset(months=3)).date(),
+                               min_value=(pd.Timestamp(last_date) + pd.Timedelta(days=1)).date(), max_value=pd.Timestamp(horizon_end).date(),
+                               key=f"pr_div_d_{key}")
+        if dps <= 0:
+            return None, mode
+        return pd.DataFrame({"ex_date": [pd.Timestamp(ex)], "dps": [float(dps)], "source": ["вручную"]}), mode
+    return project_dividends(dividends, last_date, horizon_end), mode
+
+
+def render_price_range(prices: pd.DataFrame, ticker: str, currency: str, color: str, key: str, dividends=None) -> dict:
+    """Диапазон будущей цены по истории цен. dividends: прошлые (и объявленные) выплаты ex_date, dps — по ним доходности
+    очищаются от дивидендных гэпов и строятся ожидаемые выплаты в горизонте. Возвращает таблицы для экспорта."""
     history = clean_prices(prices) if prices is not None and not prices.empty else pd.DataFrame()
     if history.empty:
         st.info("История цен недоступна: диапазон не строится.")
@@ -60,8 +85,11 @@ def render_price_range(prices: pd.DataFrame, ticker: str, currency: str, color: 
                                    help="«Без роста» не продолжает прошлую динамику. «Историческая доходность» переносит среднюю доходность прошлого в будущее.")
     model, vol, drift = MODELS[model_label], VOLS[vol_label], DRIFTS[drift_label]
     days = months * MC_DAYS_PER_MONTH
+    last_date = history["begin"].iloc[-1]
+    horizon_end = pd.bdate_range(pd.Timestamp(last_date) + pd.Timedelta(days=1), periods=days)[-1]
+    future, div_mode = _future_dividends(dividends, last_date, horizon_end, currency, key)
 
-    res = price_range(history, days, model, vol, drift)
+    res = price_range(history, days, model, vol, drift, dividends=dividends, future_dividends=future)
     if res is None:
         st.info("Слишком мало данных (нужно не меньше двух-трёх месяцев торгов) для построения диапазона.")
         return {}
@@ -79,7 +107,29 @@ def render_price_range(prices: pd.DataFrame, ticker: str, currency: str, color: 
               help="Вероятность того, что цена хотя бы раз за горизонт опустится на 10% и более от текущей.")
     b2.metric("Просадка 20% и более в любой момент", f"{m['prob_touch_drop_20'] * 100:.0f}%")
     b3.metric("VaR 95%", f"{m['var95_pct']:.1f}%", help=f"В 5% случаев потеря за {months} мес. будет не меньше этой величины. В среднем в этих худших случаях: {m['cvar95_pct']:.1f}% (CVaR).")
-    b4.metric("Волатильность (год)", f"{params['sigma_annual'] * 100:.1f}%")
+    b4.metric("Волатильность (год)", f"{params['sigma_annual'] * 100:.1f}%",
+              help="Без дивидендных гэпов: доходности считаются по ряду полной доходности." if res["gaps_removed"] else None)
+
+    booked = res["dividends"]
+    if not booked.empty:
+        e1, e2, e3 = st.columns(3)
+        e1.metric("Дивиденды за горизонт", f"{res['dividends_sum']:,.2f} {currency}",
+                  help="Сумма выплат, вычтенных из цены в дни отсечки.")
+        e2.metric("Медиана цены + дивиденды", f"{m['median_with_dividends']:,.2f} {currency}",
+                  delta=f"{(m['median_with_dividends'] / p0 - 1) * 100:+.1f}%",
+                  help="Цена через горизонт плюс полученные дивиденды (без реинвестирования и налога).")
+        e3.metric("Вероятность убытка с учётом дивидендов", f"{m['prob_loss_with_dividends'] * 100:.0f}%",
+                  help="Доля сценариев, где цена через горизонт плюс дивиденды ниже текущей цены.")
+        view = booked.merge(future[["ex_date", "source"]], on="ex_date", how="left") if future is not None else booked.assign(source="")
+        view = pd.DataFrame({"Дата отсечки": pd.to_datetime(view["ex_date"]).dt.strftime("%d.%m.%Y"),
+                             f"Дивиденд, {currency}": view["dps"].round(2), "К текущей цене, %": (view["dps"] / p0 * 100).round(2),
+                             "Откуда": view["source"].fillna("")})
+        st.caption("Учтённые выплаты (в день отсечки цена каждой траектории уменьшается на сумму дивиденда):")
+        show_table(view, hide_index=True)
+        st.caption("Медиана и коридоры выше — это цена после выплат, поэтому без дивидендов они были бы выше. "
+                   "Будущие выплаты «как год назад» — допущение: компания может изменить сумму, дату или отменить выплату.")
+    elif div_mode == DIV_EXPECTED:
+        st.caption("За последние 12 месяцев выплат не было и объявленных нет: дивиденды в горизонте не учтены.")
 
     _fan_chart(res, history, currency, color, ticker)
 
@@ -94,13 +144,15 @@ def render_price_range(prices: pd.DataFrame, ticker: str, currency: str, color: 
     table["К текущей цене, %"] = (table[f"Цена, {currency}"] / p0 - 1) * 100
     show_table(table.set_index("Процентиль").round(2))
 
-    cal_table, cal = calibrate(history, days, model, vol, drift)
+    cal_table, cal = calibrate(history, days, model, vol, drift, dividends=dividends)
     verdict = calibration_verdict(cal)
     with st.expander("🔍 Проверка модели на прошлом"):
         if cal["n"] == 0:
             st.info("Истории слишком мало для проверки на прошлом (нужно больше года торгов плюс горизонт).")
         else:
-            st.caption("На каждой дате модель обучается только на более ранних данных и строит коридоры на выбранный горизонт; затем сравнивается с фактической ценой.")
+            st.caption("На каждой дате модель обучается только на более ранних данных и строит коридоры на выбранный горизонт; затем сравнивается с фактической ценой."
+                       + (" Так как есть данные о дивидендах, проверка идёт по индексу полной доходности: дивидендный гэп внутри окна "
+                          "не считается промахом модели (цены в таблице — значения этого индекса)." if res["gaps_removed"] else ""))
             k1, k2, k3, k4 = st.columns(4)
             k1.metric("Проверок", cal["n"], help=f"Даты проверки идут с шагом около месяца, окна перекрываются: независимых проверок примерно {cal['n_eff']:.0f}.")
             k2.metric("Факт в 80%-коридоре", f"{cal['coverage80'] * 100:.0f}%", delta=f"{(cal['coverage80'] - 0.8) * 100:+.0f} п.п. к ожидаемым 80%")
@@ -121,6 +173,8 @@ def render_price_range(prices: pd.DataFrame, ticker: str, currency: str, color: 
 
     export_q = _round_numeric(res["quantiles"].assign(Дата=res["dates"]), 4)
     out = {"Диапазон цены": export_q}
+    if not booked.empty:
+        out["Диапазон цены - дивиденды"] = booked
     if cal["n"]:
         out["Диапазон цены - проверка"] = cal_table
     return out

@@ -174,7 +174,7 @@ def single_view():
                 range_prices = None
                 show_data_error(e, f"range_{ticker}")
             if range_prices is not None:
-                range_tables_ = render_price_range(range_prices, ticker, "₽", GREEN, f"ru_{ticker}")
+                range_tables_ = render_price_range(range_prices, ticker, "₽", GREEN, f"ru_{ticker}", dividends=load_dividends_ru(ticker))
 
         with tab_lab:
             try:
@@ -272,7 +272,8 @@ def single_view():
                 range_prices = None
                 show_data_error(e, f"range_{ticker}")
             if range_prices is not None:
-                range_tables_ = render_price_range(range_prices, ticker, data["currency"], BLUE, f"us_{ticker}")
+                range_tables_ = render_price_range(range_prices, ticker, data["currency"], BLUE, f"us_{ticker}",
+                                                   dividends=get_us_dividend_events(ticker))
 
         with tab_lab:
             try:
