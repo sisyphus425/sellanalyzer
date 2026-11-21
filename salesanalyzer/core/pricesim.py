@@ -6,12 +6,18 @@
 - бутстрап: дневные доходности случайно выбираются из истории (сохраняются «тяжелые хвосты»).
 Дрейф (ожидаемый рост) по умолчанию нулевой: ожидаемая цена равна текущей, прошлый рост не продолжается.
 Проверка на прошлом показывает, как часто фактическая цена попадала в построенные коридоры.
+
+Дивиденды. Если переданы прошлые выплаты, доходности считаются по ряду полной доходности: дивидендный гэп в день отсечки
+не считается падением цены и не завышает волатильность. Ожидаемые выплаты внутри горизонта вычитаются из цены в день отсечки
+(после гэпа траектория продолжается от уменьшенной цены). Проверка на прошлом при этом идет по полной доходности.
 """
 
 from statistics import NormalDist
 
 import numpy as np
 import pandas as pd
+
+from salesanalyzer.core.benchmark import add_total_return
 
 from salesanalyzer.config import (MC_CALIBRATION_MIN_TRAIN, MC_CALIBRATION_SIMULATIONS, MC_CALIBRATION_STEP,
                                   MC_EWMA_LAMBDA, MC_MIN_RETURNS, MC_SEED, MC_SIMULATIONS, TRADING_DAYS)
@@ -81,11 +87,73 @@ def risk_metrics(p0, terminal, path_min) -> dict:
     }
 
 
-def price_range(prices, horizon_days, model=MODEL_GBM, vol_mode=VOL_EWMA, drift_mode=DRIFT_ZERO, n_sim=None, seed=None):
+DIVIDEND_COLS = ["ex_date", "dps"]
+MIN_PRICE_AFTER_GAP = 0.01  # доля цены, ниже которой гэп не опускает траекторию (дивиденд больше цены на практике не бывает)
+
+
+def model_series(df: pd.DataFrame, dividends=None) -> np.ndarray:
+    """Ряд, по которому оцениваются доходности: цены или, если есть прошлые выплаты, индекс полной доходности
+    (дивидендный гэп компенсирован дивидендом)."""
+    if dividends is None or len(dividends) == 0:
+        return df["close"].to_numpy(dtype=float)
+    return add_total_return(df, dividends)["tr"].to_numpy(dtype=float)
+
+
+def project_dividends(events, last_date, horizon_end, lookback_days: int = 365) -> pd.DataFrame:
+    """Ожидаемые выплаты в (last_date, horizon_end]: объявленные (с датой отсечки в будущем) и повтор выплат последних
+    lookback_days дней через год с той же суммой. Повтор пропускается, если в пределах 60 дней от него уже есть объявленная выплата.
+    Возвращает таблицу ex_date, dps, source («объявлена» или «как год назад»)."""
+    cols = DIVIDEND_COLS + ["source"]
+    if events is None or len(events) == 0:
+        return pd.DataFrame(columns=cols)
+    ev = events[DIVIDEND_COLS].dropna().copy()
+    ev["ex_date"] = pd.to_datetime(ev["ex_date"]).dt.normalize()
+    ev = ev[ev["dps"] > 0]
+    last_date, horizon_end = pd.Timestamp(last_date).normalize(), pd.Timestamp(horizon_end).normalize()
+    announced = ev[(ev["ex_date"] > last_date) & (ev["ex_date"] <= horizon_end)].assign(source="объявлена")
+    recent = ev[(ev["ex_date"] > last_date - pd.Timedelta(days=lookback_days)) & (ev["ex_date"] <= last_date)]
+    repeated = recent.assign(ex_date=recent["ex_date"] + pd.DateOffset(years=1), source="как год назад")
+    repeated = repeated[(repeated["ex_date"] > last_date) & (repeated["ex_date"] <= horizon_end)]
+    if not announced.empty and not repeated.empty:
+        near = repeated["ex_date"].apply(lambda d: (abs(announced["ex_date"] - d) <= pd.Timedelta(days=60)).any())
+        repeated = repeated[~near]
+    out = pd.concat([announced, repeated], ignore_index=True)
+    return out.sort_values("ex_date").reset_index(drop=True)[cols]
+
+
+def apply_dividend_gaps(paths: np.ndarray, dates, future_dividends) -> tuple:
+    """Вычитает дивиденды из траекторий в первый день горизонта не раньше даты отсечки: цена в этот день уменьшается
+    на сумму дивиденда, дальше траектория продолжается от уменьшенной цены. Возвращает (траектории, таблица учтенных выплат
+    с колонками ex_date, dps, day — номер дня горизонта, начиная с 1)."""
+    booked = pd.DataFrame(columns=DIVIDEND_COLS + ["day"])
+    if future_dividends is None or len(future_dividends) == 0:
+        return paths, booked
+    days = pd.DatetimeIndex(dates).normalize()
+    rows = []
+    paths = paths.copy()
+    ev = future_dividends.copy()
+    ev["ex_date"] = pd.to_datetime(ev["ex_date"]).dt.normalize()
+    for _, r in ev.sort_values("ex_date").iterrows():
+        k = int(np.searchsorted(days.values, np.datetime64(r["ex_date"]), side="left"))
+        if k >= paths.shape[1] or r["dps"] <= 0:
+            continue
+        factor = np.maximum(1 - float(r["dps"]) / paths[:, k], MIN_PRICE_AFTER_GAP)
+        paths[:, k:] *= factor[:, None]
+        rows.append({"ex_date": r["ex_date"], "dps": float(r["dps"]), "day": k + 1})
+    if rows:
+        booked = pd.DataFrame(rows, columns=DIVIDEND_COLS + ["day"])
+    return paths, booked
+
+
+def price_range(prices, horizon_days, model=MODEL_GBM, vol_mode=VOL_EWMA, drift_mode=DRIFT_ZERO, n_sim=None, seed=None,
+                dividends=None, future_dividends=None):
     """Диапазон цены на horizon_days торговых дней вперед. Возвращает словарь или None, если данных мало:
-    p0, last_date, params, dates, quantiles (по дням), terminal (цены на конец горизонта), metrics."""
+    p0, last_date, params, dates, quantiles (по дням), terminal (цены на конец горизонта), metrics, dividends (учтенные выплаты),
+    dividends_sum. dividends: прошлые выплаты (ex_date, dps) — доходности оцениваются без дивидендных гэпов;
+    future_dividends: ожидаемые выплаты внутри горизонта — вычитаются из цены в день отсечки."""
     df = clean_prices(prices)
-    returns = log_returns(df["close"]) if len(df) > 1 else np.array([])
+    series = model_series(df, dividends) if len(df) > 1 else np.array([])
+    returns = log_returns(series) if len(series) > 1 else np.array([])
     if len(returns) < MC_MIN_RETURNS:
         return None
     n_sim = MC_SIMULATIONS if n_sim is None else n_sim
@@ -93,14 +161,20 @@ def price_range(prices, horizon_days, model=MODEL_GBM, vol_mode=VOL_EWMA, drift_
     p0, last_date = float(df["close"].iloc[-1]), df["begin"].iloc[-1]
     steps = _steps(returns, n_sim, int(horizon_days), model, vol_mode, drift_mode, rng)
     paths = p0 * np.exp(np.cumsum(steps, axis=1))
+    dates = pd.bdate_range(pd.Timestamp(last_date) + pd.Timedelta(days=1), periods=int(horizon_days))
+    paths, booked = apply_dividend_gaps(paths, dates, future_dividends)
     q = np.quantile(paths, QUANTILES, axis=0)
     quantiles = pd.DataFrame({QUANTILE_NAMES[qq]: q[i] for i, qq in enumerate(QUANTILES)})
     quantiles.insert(0, "День", np.arange(1, int(horizon_days) + 1))
-    dates = pd.bdate_range(pd.Timestamp(last_date) + pd.Timedelta(days=1), periods=int(horizon_days))
     terminal = paths[:, -1]
+    div_sum = float(booked["dps"].sum()) if not booked.empty else 0.0
+    metrics = risk_metrics(p0, terminal, paths.min(axis=1))
+    metrics["median_with_dividends"] = float(np.median(terminal + div_sum))
+    metrics["prob_loss_with_dividends"] = float(np.mean(terminal + div_sum < p0))
     return {"p0": p0, "last_date": last_date, "params": estimate_params(returns, vol_mode, drift_mode), "dates": dates,
-            "quantiles": quantiles, "terminal": terminal, "metrics": risk_metrics(p0, terminal, paths.min(axis=1)),
-            "horizon_days": int(horizon_days), "n_returns": int(len(returns))}
+            "quantiles": quantiles, "terminal": terminal, "metrics": metrics,
+            "horizon_days": int(horizon_days), "n_returns": int(len(returns)), "dividends": booked, "dividends_sum": div_sum,
+            "gaps_removed": dividends is not None and len(dividends) > 0}
 
 
 def _terminal_quantiles(train_returns, horizon, model, vol_mode, drift_mode, n_sim, rng, qs):
@@ -117,15 +191,17 @@ def _terminal_quantiles(train_returns, horizon, model, vol_mode, drift_mode, n_s
 
 
 def calibrate(prices, horizon_days, model=MODEL_GBM, vol_mode=VOL_EWMA, drift_mode=DRIFT_ZERO, step=None, min_train=None,
-              n_sim=None, seed=None):
+              n_sim=None, seed=None, dividends=None):
     """Проверка на прошлом: на каждой дате модель обучается только на более ранних данных и строит коридоры на horizon_days вперед;
-    затем сверяем с фактической ценой. Возвращает (таблица по датам, сводка). Окна перекрываются, поэтому независимых проверок меньше (n_eff)."""
+    затем сверяем с фактической ценой. Возвращает (таблица по датам, сводка). Окна перекрываются, поэтому независимых проверок меньше (n_eff).
+    С прошлыми выплатами (dividends) проверка идет по индексу полной доходности, приведенному к цене на дату прогноза:
+    так дивидендный гэп внутри окна не считается промахом модели."""
     step = MC_CALIBRATION_STEP if step is None else step
     min_train = MC_CALIBRATION_MIN_TRAIN if min_train is None else min_train
     n_sim = MC_CALIBRATION_SIMULATIONS if n_sim is None else n_sim
     horizon = int(horizon_days)
     df = clean_prices(prices)
-    close = df["close"].to_numpy()
+    close = model_series(df, dividends) if len(df) > 1 else df["close"].to_numpy()
     returns = log_returns(close) if len(close) > 1 else np.array([])
     rng = np.random.default_rng(MC_SEED if seed is None else seed)
     qs = (0.10, 0.25, 0.50, 0.75, 0.90)

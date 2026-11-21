@@ -191,3 +191,84 @@ def test_settings_in_config_are_sane(cfg):
     assert cfg.MC_SIMULATIONS >= 1000 and cfg.MC_MIN_RETURNS >= 20 and 0 < cfg.MC_EWMA_LAMBDA < 1
     assert cfg.MC_CALIBRATION_STEP >= 1 and cfg.MC_CALIBRATION_MIN_TRAIN >= cfg.MC_MIN_RETURNS
     assert all(m * cfg.MC_DAYS_PER_MONTH > 0 for m in cfg.MC_HORIZON_MONTHS)
+
+
+# ---------- дивиденды ----------
+
+def with_gaps(prices, every=126, dps_share=0.10):
+    """Добавляет к ценам дивидендные гэпы: каждые `every` дней цена падает на dps_share. Возвращает (цены, выплаты)."""
+    p = prices.copy().reset_index(drop=True)
+    events = []
+    close = p["close"].to_numpy().copy()
+    for i in range(every, len(p), every):
+        dps = float(close[i - 1] * dps_share)
+        close[i:] = close[i:] * (1 - dps / close[i])  # цена падает на дивиденд, дальше те же доходности
+        events.append((p["begin"].iloc[i], dps))
+    p["close"] = close
+    return p, pd.DataFrame(events, columns=["ex_date", "dps"])
+
+
+def test_past_dividend_gaps_do_not_inflate_volatility(app):
+    clean = make_prices(sigma=0.01, seed=5)
+    gapped, events = with_gaps(clean)
+    sigma_clean = app.price_range(clean, 21, app.MODEL_GBM, app.VOL_FULL)["params"]["sigma"]
+    sigma_gapped = app.price_range(gapped, 21, app.MODEL_GBM, app.VOL_FULL)["params"]["sigma"]
+    sigma_fixed = app.price_range(gapped, 21, app.MODEL_GBM, app.VOL_FULL, dividends=events)["params"]["sigma"]
+    assert sigma_gapped > sigma_clean * 1.1  # гэпы завышают волатильность
+    assert sigma_fixed == pytest.approx(sigma_clean, rel=1e-6)  # с выплатами — как без гэпов
+    assert app.price_range(gapped, 21, dividends=events)["gaps_removed"] is True
+
+
+def test_future_dividend_lowers_the_price_by_the_dividend(app):
+    prices = make_prices(seed=6)
+    last = prices["begin"].iloc[-1]
+    future = pd.DataFrame({"ex_date": [last + pd.Timedelta(days=20)], "dps": [10.0]})
+    base = app.price_range(prices, 63, app.MODEL_GBM, app.VOL_FULL)
+    res = app.price_range(prices, 63, app.MODEL_GBM, app.VOL_FULL, future_dividends=future)
+    k = int((res["dates"] < future["ex_date"].iloc[0]).sum())  # индекс первого рабочего дня не раньше отсечки
+    assert res["dividends_sum"] == pytest.approx(10.0) and res["dividends"]["day"].tolist() == [k + 1]
+    q_base, q = base["quantiles"], res["quantiles"]
+    assert np.allclose(q["p50"].iloc[:k], q_base["p50"].iloc[:k])  # до отсечки траектории те же
+    assert q["p50"].iloc[k] < q_base["p50"].iloc[k] - 9  # в день отсечки медиана падает примерно на дивиденд
+    assert res["metrics"]["median"] < base["metrics"]["median"] - 9
+    assert res["metrics"]["median_with_dividends"] == pytest.approx(base["metrics"]["median"], rel=0.02)
+    assert res["metrics"]["prob_below_current"] > base["metrics"]["prob_below_current"]
+    assert res["metrics"]["prob_loss_with_dividends"] == pytest.approx(base["metrics"]["prob_below_current"], abs=0.03)
+
+
+def test_dividends_outside_the_horizon_are_ignored(app):
+    prices = make_prices(seed=7)
+    last = prices["begin"].iloc[-1]
+    future = pd.DataFrame({"ex_date": [last + pd.Timedelta(days=400)], "dps": [10.0]})
+    res = app.price_range(prices, 21, future_dividends=future)
+    assert res["dividends"].empty and res["dividends_sum"] == 0.0
+
+
+def test_gap_never_makes_price_negative(app):
+    paths = np.array([[5.0, 5.0, 5.0], [100.0, 100.0, 100.0]])
+    dates = pd.bdate_range("2026-01-05", periods=3)
+    out, booked = app.apply_dividend_gaps(paths, dates, pd.DataFrame({"ex_date": [dates[1]], "dps": [10.0]}))
+    assert (out > 0).all() and out[1].tolist() == [100.0, 90.0, 90.0] and booked["day"].tolist() == [2]
+
+
+def test_project_dividends_repeats_last_year_and_keeps_announced(app):
+    ev = pd.DataFrame({"ex_date": pd.to_datetime(["2025-07-18", "2026-01-12", "2026-05-01", "2026-12-20"]),
+                       "dps": [34.84, 397.0, 278.0, 50.0]})
+    out = app.project_dividends(ev, "2026-11-20", "2027-11-20")
+    assert out["ex_date"].tolist() == [pd.Timestamp("2026-12-20"), pd.Timestamp("2027-05-01")]
+    assert out["source"].tolist() == ["объявлена", "как год назад"]
+    # повтор январской выплаты пропущен: рядом (в пределах 60 дней) есть объявленная декабрьская
+    out = app.project_dividends(ev, "2026-11-20", "2027-03-01")
+    assert out["ex_date"].tolist() == [pd.Timestamp("2026-12-20")]
+    assert app.project_dividends(None, "2026-11-20", "2027-11-20").empty
+
+
+def test_calibration_with_dividends_is_not_fooled_by_gaps(app):
+    """Без выплат гэпы выглядят как систематические падения: факт чаще ниже медианы. С выплатами — около половины."""
+    clean = make_prices(n=1000, sigma=0.01, seed=8)
+    gapped, events = with_gaps(clean, every=63, dps_share=0.06)
+    _, plain = app.calibrate(gapped, 63, app.MODEL_GBM, app.VOL_FULL)
+    _, fixed = app.calibrate(gapped, 63, app.MODEL_GBM, app.VOL_FULL, dividends=events)
+    _, truth = app.calibrate(clean, 63, app.MODEL_GBM, app.VOL_FULL)
+    assert plain["below_median"] > fixed["below_median"]
+    assert fixed["below_median"] == pytest.approx(truth["below_median"]) and fixed["coverage80"] == pytest.approx(truth["coverage80"])
