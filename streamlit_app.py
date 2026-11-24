@@ -13,13 +13,16 @@ from salesanalyzer.config import SEV_ERR
 from salesanalyzer.core.validation import validate_financials
 from salesanalyzer.data_sources.csv_store import read_raw_csv
 from salesanalyzer.ui.comparison_view import comparison_view
+from salesanalyzer.ui.portfolio_view import portfolio_view
 from salesanalyzer.ui.quality_view import quality_view
 from salesanalyzer.ui.single_view import single_view
+from salesanalyzer.ui.user_data import render_user_data_sidebar
 
 st.set_page_config(page_title="Анализ Продаж Компаний", layout="wide")
 
 st.title("📊 Анализатор продаж компаний (РФ и Мир)")
-mode = st.radio("Режим:", ["Одна компания", "Сравнение компаний", "Контроль данных"], horizontal=True)
+render_user_data_sidebar()
+mode = st.radio("Режим:", ["Одна компания", "Сравнение компаний", "Портфель", "Контроль данных"], horizontal=True)
 
 if mode != "Контроль данных" and config.CSV_PATH.exists():  # быстрая проверка файла данных на каждом экране
     try:
@@ -32,6 +35,8 @@ if mode != "Контроль данных" and config.CSV_PATH.exists():  # бы
 
 if mode == "Сравнение компаний":
     comparison_view()
+elif mode == "Портфель":
+    portfolio_view()
 elif mode == "Контроль данных":
     quality_view()
 else:

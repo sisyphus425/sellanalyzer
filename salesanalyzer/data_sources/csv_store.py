@@ -6,6 +6,7 @@ import streamlit as st
 
 from salesanalyzer import config
 from salesanalyzer.config import DIVIDEND_EVENT_COLS, MACRO_COLS, REQUIRED_COLS
+from salesanalyzer.data_sources.user_upload import merge_with_file, user_rows
 
 
 @st.cache_data(show_spinner=False)
@@ -25,8 +26,8 @@ def _read_csv(path: str, mtime: float) -> pd.DataFrame:
     return df.dropna(subset=["value"])
 
 
-def load_ru_all() -> pd.DataFrame:
-    """Все показатели РФ в длинном формате (ticker, year, indicator, value, ...)."""
+def load_file_rows() -> pd.DataFrame:
+    """Показатели из financials_ru.csv (без данных, загруженных пользователем)."""
     if not config.CSV_PATH.exists():
         return pd.DataFrame()
     try:
@@ -34,6 +35,12 @@ def load_ru_all() -> pd.DataFrame:
     except ValueError as e:
         st.error(f"Ошибка в файле {config.CSV_PATH.name}: {e}")
         return pd.DataFrame()
+
+
+def load_ru_all() -> pd.DataFrame:
+    """Все показатели РФ в длинном формате (ticker, year, indicator, value, ...): financials_ru.csv плюс компании,
+    загруженные пользователем в этой сессии (для совпадающих тикеров загруженные данные заменяют данные файла)."""
+    return merge_with_file(load_file_rows(), user_rows())
 
 
 def load_revenue_csv() -> pd.DataFrame:

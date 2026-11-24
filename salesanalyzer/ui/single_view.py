@@ -24,6 +24,7 @@ from salesanalyzer.core.valuation import curve_yield, history_ru, history_us
 from salesanalyzer.ui.valuation import render_multiples_history, render_ofz_comparison
 from salesanalyzer.ui.components import adjustment_controls, render_adjustment_info, render_export, render_market_stats, render_price, render_profitability, render_revenue, show_data_error
 from salesanalyzer.data_sources.errors import DataSourceError
+from salesanalyzer.data_sources.user_upload import user_tickers
 
 
 def single_view():
@@ -36,6 +37,11 @@ def single_view():
     with col_input:
         ticker = st.text_input("Тикер:", value="SBER" if is_ru else "AAPL",
                                key=f"ticker_{'ru' if is_ru else 'us'}").strip().upper()
+    own = user_tickers()
+    if own and is_ru:
+        st.caption("📤 Ваши загруженные компании: " + ", ".join(own) + " (введите тикер выше).")
+    elif own:
+        st.caption("📤 Загруженные компании (" + ", ".join(own) + ") открываются на рынке «Россия (Мосбиржа)».")
     if not ticker:
         return
 
@@ -54,10 +60,18 @@ def single_view():
             st.warning(f"{e} Название компании и цены недоступны; финансовые данные из файла показаны.")
 
         if name is None and rows.empty:
-            st.error(f"❌ Тикер **{ticker}** не найден на Мосбирже и отсутствует в {config.CSV_PATH.name}.")
+            st.error(f"❌ Тикер **{ticker}** не найден на Мосбирже и отсутствует в {config.CSV_PATH.name}. "
+                     "Данные своей компании можно загрузить в боковой панели «Своя компания».")
             st.stop()
 
         st.subheader(f"🏢 {name or ticker} ({ticker})")
+        if ticker in own:
+            if name is None:
+                st.info("📤 Данные загружены вами. На Мосбирже такой бумаги нет (частная компания или другой тикер): работают "
+                        "вкладки выручки, прибыльности, прогноза и «что если»; вкладки, которым нужна цена акции, покажут, что цен нет.")
+            else:
+                st.info(f"📤 Финансовые данные загружены вами (они заменяют данные {config.CSV_PATH.name} для этого тикера); "
+                        "цены — с Мосбиржи.")
 
         ru_orig = ru_all[ru_all["ticker"] == ticker]
         ru_long = ru_orig
